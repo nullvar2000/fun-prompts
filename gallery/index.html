@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fun-prompts · gallery</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>fun-prompts</h1>
+    <p class="tagline">A gallery of silly prompts and the tiny web apps they built.</p>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search titles, prompts, labels…" autocomplete="off">
+      <button id="clear" hidden>Clear</button>
+    </div>
+    <div id="tags" class="tags"></div>
+    <div id="status" class="status"></div>
+  </header>
+  <main>
+    <div id="grid" class="grid"></div>
+    <p id="empty" class="empty" hidden>No apps match. Try fewer labels or a different search.</p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

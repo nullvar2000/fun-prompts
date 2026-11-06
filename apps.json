@@ -1,0 +1,31 @@
+{
+  "apps": [
+    {
+      "id": "dice-roller",
+      "title": "Dice Roller",
+      "icon": "🎲",
+      "summary": "Roll any dice combo for your tabletop night, with rolling history and a dramatic shake.",
+      "tags": ["games", "dice", "random", "tabletop"],
+      "prompt": "prompts/dice-roller.md",
+      "app": "apps/dice-roller/"
+    },
+    {
+      "id": "pomodoro",
+      "title": "Pomodoro Timer",
+      "icon": "🍅",
+      "summary": "A 25-minutes-on, 5-minutes-off focus timer that counts your wins and nags you kindly.",
+      "tags": ["productivity", "timer", "focus", "tools"],
+      "prompt": "prompts/pomodoro.md",
+      "app": "apps/pomodoro/"
+    },
+    {
+      "id": "palette-generator",
+      "title": "Palette Generator",
+      "icon": "🎨",
+      "summary": "Spin out five harmonious colors, click to copy the hex, hit space to reroll.",
+      "tags": ["design", "color", "tools", "random"],
+      "prompt": "prompts/palette-generator.md",
+      "app": "apps/palette-generator/"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomodoro Timer</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1.25rem;
+    font-family: system-ui, sans-serif; background: #2b1319; color: #f7768e;
+    transition: background .5s, color .5s; padding: 1rem;
+  }
+  body.break { background: #16261c; color: #9ece6a; }
+  h1 { margin: 0; font-size: 1.25rem; letter-spacing: .1em; text-transform: uppercase; }
+  .time { font-size: clamp(4rem, 20vw, 9rem); font-weight: 800; font-variant-numeric: tabular-nums; }
+  .buttons { display: flex; gap: .75rem; }
+  button {
+    font: inherit; font-weight: 700; padding: .6rem 1.5rem; cursor: pointer;
+    border-radius: .5rem; border: 2px solid currentColor; background: transparent; color: inherit;
+  }
+  button.primary { background: currentColor; }
+  button.primary span { color: #1a1b26; }
+  .count { font-size: 1rem; opacity: .8; }
+</style>
+</head>
+<body>
+  <h1 id="phase">Focus</h1>
+  <div class="time" id="time">25:00</div>
+  <div class="buttons">
+    <button class="primary" id="toggle"><span>Start</span></button>
+    <button id="reset">Reset</button>
+  </div>
+  <div class="count" id="count">🍅 0 pomodoros completed</div>
+<script>
+  const WORK = 25 * 60, BREAK = 5 * 60;
+  let phase = "work", remaining = WORK, running = false, done = 0, tick = null;
+  const $ = id => document.getElementById(id);
+  function render() {
+    const m = String(Math.floor(remaining / 60)).padStart(2, "0");
+    const s = String(remaining % 60).padStart(2, "0");
+    $("time").textContent = `${m}:${s}`;
+    document.title = running ? `${m}:${s} — ${phase === "work" ? "Focus" : "Break"}` : "Pomodoro Timer";
+  }
+  function advance() {
+    if (phase === "work") { done++; $("count").textContent = `🍅 ${done} pomodoro${done === 1 ? "" : "es"} completed`; }
+    phase = phase === "work" ? "break" : "work";
+    remaining = phase === "work" ? WORK : BREAK;
+    document.body.classList.toggle("break", phase === "break");
+    $("phase").textContent = phase === "work" ? "Focus" : "Break";
+    render();
+  }
+  $("toggle").addEventListener("click", () => {
+    running = !running;
+    $("toggle").querySelector("span").textContent = running ? "Pause" : "Start";
+    clearInterval(tick);
+    if (running) tick = setInterval(() => {
+      if (--remaining <= 0) advance();
+      render();
+    }, 1000);
+    render();
+  });
+  $("reset").addEventListener("click", () => {
+    running = false; clearInterval(tick);
+    phase = "work"; remaining = WORK;
+    document.body.classList.remove("break");
+    $("phase").textContent = "Focus";
+    $("toggle").querySelector("span").textContent = "Start";
+    render();
+  });
+  render();
+</script>
+</body>
+</html>
