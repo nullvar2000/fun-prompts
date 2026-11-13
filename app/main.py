@@ -17,8 +17,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app import logsetup
 from app.config import Settings, bootstrap_secrets, load_settings
-from app.storage.db import Database
+from app.container import build_container
 from app.storage.seed import SeedImporter
+from app.web.api.routes_builds import router as builds_router
 from app.web.templating import templates
 from app.web.security import SecurityHeaders
 
@@ -42,15 +43,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for key, value in resolved.redacted_dump().items():
             log.info("  %-30s %s", key, value)
 
-        db = Database(resolved.db_path, busy_timeout_ms=resolved.db_idle_timeout_ms)
-        applied = db.migrate()
-        if applied:
-            log.info("applied migrations: %s", applied)
-        application.state.db = db
+        container = build_container(resolved)
+        application.state.container = container
+        application.state.db = container.db
 
         if resolved.seed_on_start:
             report = SeedImporter(
-                db,
+                container.db,
                 prompts_dir=resolved.prompts_dir,
                 seed_apps_dir=resolved.seed_apps_dir,
             ).run()
@@ -64,7 +63,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     resolved.prompts_dir,
                     resolved.seed_apps_dir,
                 )
-        yield
+
+        container.worker.recover_interrupted()
+        await container.worker.start()
+        try:
+            yield
+        finally:
+            await container.worker.stop()
 
     application = FastAPI(
         title="fun-prompts",
@@ -97,6 +102,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     if STATIC_DIR.is_dir():
         application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    application.include_router(builds_router)
 
     return application
 
