@@ -122,6 +122,12 @@ class Settings:
     #: markers through. Never enable on a reachable interface.
     allow_prompt_override_markers: bool = False
     rate_limit_per_hour: int = 0
+    #: Mark the session cookie ``Secure``. Off by default because the expected
+    #: deployment is a LAN over http; turn it on behind anything TLS-terminating.
+    cookie_secure: bool = False
+    #: Failed admin logins allowed per client per hour. Guessing over a LAN should
+    #: be impractical, and this is the one place a wrong password is worth slowing.
+    login_max_attempts_per_hour: int = 10
     extra_frame_ancestors: list[str] = field(default_factory=list)
 
     # --- boot ---------------------------------------------------------------
@@ -177,6 +183,8 @@ class Settings:
             "FP_ALLOW_INSECURE_TLS": self.allow_insecure_tls,
             "FP_ALLOW_PROMPT_MARKERS": self.allow_prompt_override_markers,
             "FP_RATE_LIMIT_PER_HOUR": self.rate_limit_per_hour,
+            "FP_COOKIE_SECURE": self.cookie_secure,
+            "FP_LOGIN_MAX_ATTEMPTS_PER_HOUR": self.login_max_attempts_per_hour,
             "FP_ALLOW_ORIGINS": self.extra_frame_ancestors,
             "FP_SEED_ON_START": self.seed_on_start,
             "FP_RUN_ARTIFACT_SERVER": self.run_artifact_server,
@@ -237,6 +245,8 @@ def load_settings() -> Settings:
         allow_insecure_tls=_bool("FP_ALLOW_INSECURE_TLS", False),
         allow_prompt_override_markers=_bool("FP_ALLOW_PROMPT_MARKERS", False),
         rate_limit_per_hour=_int("FP_RATE_LIMIT_PER_HOUR", 0, minimum=0),
+        cookie_secure=_bool("FP_COOKIE_SECURE", False),
+        login_max_attempts_per_hour=_int("FP_LOGIN_MAX_ATTEMPTS_PER_HOUR", 10, minimum=1),
         extra_frame_ancestors=_list("FP_ALLOW_ORIGINS"),
         seed_on_start=_bool("FP_SEED_ON_START", True),
         run_artifact_server=_bool("FP_RUN_ARTIFACT_SERVER", True),

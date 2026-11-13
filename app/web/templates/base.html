@@ -14,8 +14,10 @@
     <header class="site-head">
       <a class="brand" href="/">fun-prompts</a>
       <nav>
+        {% block nav %}
         <a href="/gallery">gallery</a>
-        {# The admin panel lands in M5; until then there is nothing to link to. #}
+        <a href="/admin">admin</a>
+        {% endblock %}
       </nav>
     </header>
     <main>{% block main %}{% endblock %}</main>

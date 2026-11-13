@@ -1,11 +1,18 @@
-"""Small helpers that build valid rows for repository tests."""
+"""Small helpers that build valid rows and drive the admin session in tests."""
 
 from __future__ import annotations
+
+import re
+
+from fastapi.testclient import TestClient
 
 from app.domain.models import Endpoint, ModelTarget, Prompt
 from app.storage.db import Database
 from app.storage.repos.endpoints import EndpointRepo
 from app.storage.repos.prompts import PromptRepo
+from app.web.auth import CSRF_FORM_FIELD
+
+CSRF_FIELD_RE = re.compile(r'name="csrf_token" value="([^"]*)"')
 
 
 def make_endpoint(db: Database, name: str = "test-endpoint", models: tuple[str, ...] = ("model-a",)) -> tuple[Endpoint, list[ModelTarget]]:
@@ -17,3 +24,32 @@ def make_endpoint(db: Database, name: str = "test-endpoint", models: tuple[str, 
 
 def make_prompt(db: Database, title: str = "Test Prompt", body: str = "build a thing") -> Prompt:
     return PromptRepo(db).create(title=title, body=body)
+
+
+# --- admin session -----------------------------------------------------------
+def csrf_token_on(client: TestClient, path: str = "/admin/login") -> str:
+    """The CSRF token the page at ``path`` would submit.
+
+    Read out of the rendered hidden field, so the test breaks if the template
+    stops including it — which is the failure mode that matters.
+    """
+    match = CSRF_FIELD_RE.search(client.get(path).text)
+    assert match is not None, f"no {CSRF_FORM_FIELD} field on {path}"
+    return match.group(1)
+
+
+def sign_in(client: TestClient, password: str = "test-admin-password") -> str:
+    """Log the client's cookie jar in and return the (now authorised) csrf token."""
+    token = csrf_token_on(client)
+    response = client.post(
+        "/admin/login", data={"password": password, CSRF_FORM_FIELD: token}, follow_redirects=False
+    )
+    assert response.status_code == 303, response.text
+    return csrf_token_on(client, "/admin")
+
+
+def admin_post(client: TestClient, path: str, data: dict[str, str], token: str | None = None):  # noqa: ANN201
+    """POST a form to /admin with a valid csrf token unless one is passed in."""
+    payload = dict(data)
+    payload.setdefault(CSRF_FORM_FIELD, token if token is not None else csrf_token_on(client, "/admin"))
+    return client.post(path, data=payload, follow_redirects=False)
