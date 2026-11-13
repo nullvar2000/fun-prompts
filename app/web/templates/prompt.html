@@ -36,9 +36,24 @@ block main %}
     {% endfor %}
   </ul>
   {% if builds | length > 1 %}
-  <p class="muted small">
-    Side-by-side comparison of these outputs lands in M6.
-  </p>
+  {# A plain GET form with checkboxes: the selection lives in the URL, so the
+     comparison is linkable and survives a reload without any script. #}
+  <form class="compare-pick" method="get" action="/compare">
+    <span class="muted small">compare up to {{ max_targets }} side by side:</span>
+    {% for build in builds %}
+    <label>
+      <input
+        type="checkbox"
+        name="b"
+        value="{{ build.id }}"
+        {% if build.id in compare_defaults %}checked{% endif %}
+      />
+      {{ endpoint_names.get(build.endpoint_id, "endpoint " ~ build.endpoint_id) }}
+      · {{ model_ids.get(build.model_row_id, "model " ~ build.model_row_id) }}
+    </label>
+    {% endfor %}
+    <button class="button" type="submit">compare</button>
+  </form>
   {% endif %}
 </section>
 {% else %}

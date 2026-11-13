@@ -121,6 +121,36 @@ main { max-width: 1100px; margin: 0 auto; padding: 22px 20px 60px; }
 .build-list { list-style: none; margin: 0; padding: 0; }
 .build-list li { padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 
+/* --- comparison view (M6) --------------------------------------------------
+   Two rules decide the layout: up to four outputs side by side, and when only
+   one is shown that frame gets the page. The prompt is pinned at the bottom
+   because it is the one thing every column has in common. */
+.compare { display: grid; gap: 14px; margin-top: 16px; }
+.compare-grid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.compare-single { grid-template-columns: 1fr; }
+.compare-col {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); padding: 10px 12px;
+}
+.compare-col.is-hidden { background: transparent; }
+.compare-head {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  justify-content: space-between; margin-bottom: 8px; font-size: 14px;
+}
+.compare-head nav { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.compare-col.is-hidden { opacity: .72; }
+.compare .frame { height: 520px; }
+.compare-single .frame { height: calc(100vh - 340px); min-height: 420px; }
+.compare-foot { margin: 10px 0 0; font-size: 13px; }
+.prompt-panel {
+  position: sticky; bottom: 0; z-index: 1; margin-top: 18px;
+  background: var(--bg); border-top: 1px solid var(--line); padding: 12px 0 14px;
+}
+.prompt-panel h2 { margin: 0 0 6px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.prompt-panel .prompt-body { max-height: 26vh; overflow: auto; margin-bottom: 8px; }
+.compare-pick { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 14px 0; }
+.compare-pick input[type="checkbox"] { width: auto; margin-right: 5px; }
+
 /* --- admin panel (M5) ------------------------------------------------------
    The gallery is a showcase; the admin panel is a workbench, so it gets tables,
    forms and status colours instead of cards. */

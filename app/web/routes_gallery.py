@@ -23,7 +23,7 @@ from fastapi.responses import RedirectResponse, Response
 from app.build.guard import PromptRejected
 from app.config import Settings
 from app.domain.errors import ValidationError
-from app.domain.models import Build, BuildVersion, Job
+from app.domain.models import Build, BuildVersion, Job, Prompt
 from app.domain.status import BuildStatus, JobKind, JobState
 from app.web.artifact_server import artifact_headers
 from app.web.security import same_origin_write
@@ -387,6 +387,124 @@ def cancel_refine(request: Request, build_id: int, job_id: int = Form(...)):
     return _back_to_build(build.id, "cancelled")
 
 
+# --- compare ------------------------------------------------------------------
+class CompareSelection:
+    """The compare query string: which builds, and which of them are hidden.
+
+    Show/hide has to survive a reload and a shared link, so it lives in the URL
+    rather than in a script: ``b`` is the selection, ``hide`` the part of it
+    currently folded away. Toggles are ordinary links.
+    """
+
+    def __init__(self, builds: list[int], hidden: list[int]) -> None:
+        self.builds = list(dict.fromkeys(builds))
+        self.hidden = [i for i in dict.fromkeys(hidden) if i in self.builds]
+
+    @property
+    def visible(self) -> list[int]:
+        return [build_id for build_id in self.builds if build_id not in self.hidden]
+
+    def params(self, *, hide: list[int] | None = None) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {"b": [str(i) for i in self.builds]}
+        chosen = self.hidden if hide is None else hide
+        if chosen:
+            out["hide"] = [str(i) for i in chosen]
+        return out
+
+    def url(self, *, hide: list[int] | None = None) -> str:
+        query = urlencode(self.params(hide=hide), doseq=True)
+        return f"/compare?{query}"
+
+    def toggle_url(self, build_id: int) -> str:
+        if build_id in self.hidden:
+            return self.url(hide=[i for i in self.hidden if i != build_id])
+        return self.url(hide=[*self.hidden, build_id])
+
+    def show_all_url(self) -> str:
+        return self.url(hide=[])
+
+    def drop_url(self, build_id: int) -> str:
+        """Take a build out of the comparison entirely."""
+        remaining = [i for i in self.builds if i != build_id]
+        hide = [i for i in self.hidden if i != build_id and i in remaining]
+        params: dict[str, list[str]] = {"b": [str(i) for i in remaining]}
+        if hide:
+            params["hide"] = [str(i) for i in hide]
+        query = urlencode(params, doseq=True)
+        return f"/compare?{query}" if query else "/gallery"
+
+
+@router.get("/compare")
+def compare(
+    request: Request,
+    b: list[int] = Query(default_factory=list),
+    hide: list[int] = Query(default_factory=list),
+):
+    """One prompt, up to ``FP_MAX_COMPARISON_TARGETS`` outputs, side by side.
+
+    Every output is framed from the artifact origin under the same sandbox rules
+    as the build page; the comparison is only a layout.
+    """
+    settings = _settings(request)
+    container = _container(request)
+    selection = CompareSelection(b, hide)
+    if not selection.builds:
+        raise HTTPException(400, "pick at least one build to compare")
+
+    limit = settings.max_comparison_targets
+    truncated = len(selection.builds) > limit
+    if truncated:
+        selection.builds = selection.builds[:limit]
+        selection.hidden = [i for i in selection.hidden if i in selection.builds]
+
+    outputs: list[dict] = []
+    prompt: Prompt | None = None
+    for build_id in selection.builds:
+        build = container.builds.get(build_id)
+        if build is None or build.hidden:
+            raise HTTPException(404, "no such build")
+        build_prompt = container.prompts.get(build.prompt_id)
+        if build_prompt is None or build_prompt.hidden:
+            raise HTTPException(404, "this build is not published")
+        if prompt is None:
+            prompt = build_prompt
+        elif prompt.id != build_prompt.id:
+            # A comparison only means anything if the inputs were identical.
+            # Comparing across prompts is a different question, and a different page.
+            raise HTTPException(400, "a comparison compares one prompt across endpoints")
+        version = container.builds.latest_version(build.id)
+        outputs.append(
+            {
+                "build": build,
+                "version": version,
+                "endpoint": container.endpoints.get(build.endpoint_id),
+                "model": container.endpoints.get_model(build.model_row_id),
+                "artifact_url": None if version is None else _artifact_url(settings, version.id),
+                "visible": build.id in selection.visible,
+            }
+        )
+
+    if prompt is None:  # every selected build 404s before this point
+        raise HTTPException(404, "no such build")
+    visible = [output for output in outputs if output["visible"]]
+    return templates.TemplateResponse(
+        request=request,
+        name="compare.html",
+        context={
+            "artifact_origin": settings.artifact_base_url,
+            "prompt": prompt,
+            "outputs": outputs,
+            "visible": visible,
+            # Exactly one shown means the layout stops being a grid and the
+            # artifact gets the page.
+            "single": len(visible) == 1,
+            "selection": selection,
+            "max_targets": limit,
+            "truncated": truncated,
+        },
+    )
+
+
 # --- prompt detail ------------------------------------------------------------
 @router.get("/prompt/{slug}")
 def prompt_page(request: Request, slug: str):
@@ -415,6 +533,11 @@ def prompt_page(request: Request, slug: str):
             "parent": parent,
             "endpoint_names": endpoint_names,
             "model_ids": model_ids,
+            # Pre-ticked so the form is useful without editing it: the first
+            # ``FP_MAX_COMPARISON_TARGETS`` builds, in the order the page lists
+            # them (oldest first, the same order the list below is in).
+            "max_targets": settings.max_comparison_targets,
+            "compare_defaults": {build.id for build in builds[: settings.max_comparison_targets]},
         },
     )
 

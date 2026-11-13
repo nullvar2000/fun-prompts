@@ -1,0 +1,76 @@
+{% extends "base.html" %} {% block title %}compare — {{ prompt.title }} — fun-prompts{% endblock %}
+{% block main %}
+<section class="build-head">
+  <p class="crumb">
+    <a href="/gallery">gallery</a> · <a href="/prompt/{{ prompt.slug }}">{{ prompt.title }}</a>
+  </p>
+  <h1>{{ prompt.title }}</h1>
+  <p class="muted small">
+    {{ outputs | length }} output{{ "" if outputs | length == 1 else "s" }} from one prompt ·
+    {{ visible | length }} shown
+    {% if truncated %} · showing the first {{ max_targets }} of the selection{% endif %}
+    {% if selection.hidden %} · <a href="{{ selection.show_all_url() }}">show all</a>{% endif %}
+  </p>
+</section>
+
+<section class="compare {{ 'compare-single' if single else 'compare-grid' }}">
+  {% for item in outputs %}
+  <div class="compare-col {{ 'is-hidden' if not item.visible }}">
+    <header class="compare-head">
+      <span>
+        <strong>{{ item.endpoint.name if item.endpoint else "endpoint" }}</strong>
+        · <code>{{ item.model.model_id if item.model else "model" }}</code>
+        · v{{ item.build.latest_version }}
+      </span>
+      <nav>
+        <a href="{{ selection.toggle_url(item.build.id) }}">
+          {{ "show" if not item.visible else "hide" }}</a>
+        <a href="/build/{{ item.build.id }}">build page</a>
+        {% if item.version %}<a href="/download/{{ item.version.id }}">source</a>{% endif %}
+        <a href="{{ selection.drop_url(item.build.id) }}">remove</a>
+      </nav>
+    </header>
+    {% if item.visible and item.artifact_url %}
+    <iframe
+      class="frame"
+      title="{{ prompt.title }} — {{ (item.model.model_id if item.model else 'a model') }}"
+      src="{{ item.artifact_url }}"
+      {# Same rules as the build page: no allow-same-origin, so each frame has an
+         opaque origin and can touch its own DOM and nothing else — not even the
+         other frames beside it. #}
+      sandbox="allow-scripts"
+      referrerpolicy="no-referrer"
+    ></iframe>
+    {% elif item.visible %}
+    <p class="status status-{{ item.build.status }}">
+      {% if item.build.status == 'published' %}nothing published to show
+      {% else %}{{ item.build.status }} — no artifact yet{% endif %}
+    </p>
+    {% else %}
+    <p class="compare-foot muted">Hidden. Its toggles are above.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+{% if not visible %}
+<p class="empty">Every output is hidden. <a href="{{ selection.show_all_url() }}">show them all</a>.</p>
+{% endif %}
+{% if single %}
+<p class="muted small">
+  One output shown, so it has the page.
+  <a href="/prompt/{{ prompt.slug }}">pick more to compare</a>
+</p>
+{% endif %}
+
+{# The prompt is pinned at the bottom: it is the one thing every column has in
+   common, and the question a comparison answers is what the same input produced. #}
+<section class="prompt-panel">
+  <h2>the prompt</h2>
+  <pre class="prompt-body">{{ prompt.body }}</pre>
+  <p class="small">
+    <a href="/prompt/{{ prompt.slug }}">every build from this prompt</a>
+    · source <code>{{ prompt.source }}</code>
+  </p>
+</section>
+{% endblock %}
