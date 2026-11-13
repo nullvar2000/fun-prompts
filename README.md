@@ -81,6 +81,7 @@ lands; until then there is deliberately no unauthenticated write surface.
 | `/prompt/{slug}` | the prompt and every public build made from it |
 | `/download/{version_id}` | the stored file as an attachment |
 | `:8081/artifact/{version_id}` | the artifact origin: artifact bytes and nothing else |
+| `/admin` | the panel: endpoints, prompts, builds, failure and guard logs (session required) |
 
 The artifact origin runs in the same process as the gallery on a second port
 (`FP_RUN_ARTIFACT_SERVER=1`). It has three routes, sets no cookies, serves no API
@@ -89,6 +90,42 @@ The artifact origin runs in the same process as the gallery on a second port
 generated page can draw but cannot reach a network. The gallery frames it with
 `sandbox="allow-scripts"` and no `allow-same-origin`, which gives the frame an
 opaque origin.
+
+## Admin panel
+
+`/admin` is where endpoints and models are configured and where moderation
+happens. Nothing that mutates lives anywhere else — the public API can queue a
+build, but it cannot add an endpoint or hide a build.
+
+| Page | What you do there |
+| --- | --- |
+| `/admin` | worker state, queue depth, endpoint summary, the last failures |
+| `/admin/endpoints` | add/edit endpoints, set tags and per-endpoint caps, probe, discover models, delete |
+| `/admin/endpoints/{id}` | the same for one endpoint, plus its model list, enable/disable and its recent failures |
+| `/admin/prompts` | edit a stored prompt, hide it, fork it, delete it, or re-run it on other endpoints |
+| `/admin/builds` | hide/unhide, re-run failed builds, cancel running ones, add or remove tags, delete |
+| `/admin/failures` | every rejected attempt, with the endpoint's raw response shown as escaped text |
+| `/admin/guard` | what the prompt-injection detector blocked or flagged |
+| `/admin/tags` | the tag vocabulary and where each tag came from |
+
+Signing in:
+
+- Set `ADMIN_PASSWORD` (or `FP_ADMIN_PASSWORD`). Left unset, a password and a
+  session secret are generated on first boot into `data/first-run.txt`, which is
+  also printed to the startup log.
+- The session is a signed cookie (HMAC-SHA256, `FP_SESSION_SECRET`), `httpOnly`
+  and `SameSite=Strict`. `FP_COOKIE_SECURE=1` adds `Secure` once something
+  TLS-terminating sits in front.
+- Failed sign-ins are rate limited per client per hour
+  (`FP_LOGIN_MAX_ATTEMPTS_PER_HOUR`, default 10).
+
+Why the panel is not just "behind a login": the artifact origin is a different
+*port* on the same host, and cookies ignore ports. Three things hold that
+boundary together, and each is asserted in `tests/test_auth.py` —
+`SameSite=Strict` (a cross-site request carries no session cookie at all), a CSRF
+token carried inside the signed session and echoed back by every form, and
+`X-Requested-With` on JSON writes, which a cross-origin page cannot set without a
+CORS handshake this origin never offers.
 
 ## Quick start — container
 
@@ -137,7 +174,11 @@ app/
   build/             guard → provider → extract → validate → publish
   worker/            the queue loop that runs builds
   web/               security headers, Jinja templates, JSON API
+    auth.py             signed admin session, csrf gate, login throttle
+    routes_admin.py     the /admin panel
+    routes_gallery.py   home, gallery, build and prompt pages, downloads
     artifact_server.py  the :8081 origin — artifact bytes only
+    templates/          Jinja templates (admin/ is the panel)
 gallery_static/      style.css + vendored htmx.min.js (no CDN anywhere)
 prompts/             seed prompts (markdown)
 seed/apps/           pre-built HTML imported as seed builds
@@ -151,9 +192,14 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 
 - **Two origins.** `:8080` holds the admin session and the API. `:8081` serves
   generated HTML only: no cookies, no CORS, no API, strict CSP.
-- **Cookies ignore ports**, so the session cookie is `SameSite=Strict` and every
-  mutating request will require a CSRF token plus a custom header. Without that,
-  a separate origin is only half a boundary.
+- **Cookies ignore ports**, so the admin surface is held by three independent
+  things: a `SameSite=Strict` `httpOnly` session cookie (a cross-site request
+  carries it not at all), a CSRF token that lives inside the signed session and
+  must be echoed back on every mutating request, and `X-Requested-With` on JSON
+  writes. Each is asserted separately in `tests/test_auth.py`.
+- **Admin credentials are never echoed back.** API keys are encrypted at rest
+  (`FP_KEY_FILE`, Fernet, `0600`), shown in the panel only in masked form, and a
+  blank key field means "keep the stored one".
 - **Prompt injection screening** blocks obvious override attempts at submission
   and logs them (`guard_log`). The API answers `422` without naming the rule —
   describing the pattern that matched teaches how to evade it.
@@ -182,14 +228,19 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 .venv/bin/python -m pyflakes app tests
 ```
 
-246 tests cover config and secret bootstrap, security headers, the schema and
+328 tests cover config and secret bootstrap, security headers, the schema and
 repositories, provider adapters over real TCP (including timeouts and refused
 addresses), the prompt guard, HTML extraction, the artifact gate, the pipeline's
 publish/repair/reject/fail/cancel outcomes, the worker's concurrency cap and
 crash recovery, the submission API, the operator CLI, the artifact origin's
-headers and visibility rules, and the gallery pages.
+headers and visibility rules, the gallery pages, the admin session and CSRF gate
+(tampering, expiry, throttling, cross-site writes), and the admin panel's
+create/edit/moderate behaviour including the ceiling clamps and allowlist
+refusals.
 
 CI runs `pyflakes` and `pytest`, then builds the image and checks a running
 container: health, the gallery, the sandboxed frame, the artifact origin's header
-set (no `X-Frame-Options`, no `Set-Cookie`), and that downloads arrive as
-attachments.
+set (no `X-Frame-Options`, no `Set-Cookie`), that downloads arrive as
+attachments, and the admin gate end to end — anonymous redirects, cookie flags, a
+CSRF refusal, a throttled wrong password, and a real sign-in that reaches the
+endpoints page.

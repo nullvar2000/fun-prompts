@@ -70,6 +70,38 @@ jobs:
           # Downloads are attachments on the gallery origin, never inline HTML.
           curl -fsS -D - -o /dev/null http://127.0.0.1:8080/download/build/1 \
             | grep -qi 'content-disposition: attachment; filename="'
+      - name: Check the admin gate
+        run: |
+          # Anonymous /admin is redirected to the login form.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin)" = 303
+          # The session cookie is scoped down as hard as it can be.
+          headers=$(curl -s -D - -o /dev/null http://127.0.0.1:8080/admin/login)
+          echo "$headers" | grep -qi 'set-cookie: fp_admin='
+          echo "$headers" | grep -qi 'httponly'
+          echo "$headers" | grep -qi 'samesite=strict'
+          # A write with no session at all never reaches the action: it is
+          # redirected to the login form rather than performed.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/admin/logout)" = 303
+          # The whole sign-in, with the token taken from the form.
+          jar=$(mktemp)
+          token=$(curl -s -c "$jar" http://127.0.0.1:8080/admin/login \
+            | sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p')
+          test -n "$token"
+          test "$(curl -s -b "$jar" -c "$jar" -o /dev/null -w '%{http_code}' -X POST \
+            -d "password=ci-only-password&csrf_token=$token" http://127.0.0.1:8080/admin/login)" = 303
+          curl -s -b "$jar" http://127.0.0.1:8080/admin/endpoints | grep -q 'seed'
+          # With a live session, a write still needs the csrf token.
+          test "$(curl -s -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:8080/admin/logout)" = 403
+          test "$(curl -s -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
+            -d 'csrf_token=guessed' http://127.0.0.1:8080/admin/logout)" = 403
+          # A guessed password never gets past the gate, token or no token.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'password=wrong' \
+            http://127.0.0.1:8080/admin/login)" = 403
+          # The configured password never appears in a page.
+          ! curl -s -b "$jar" http://127.0.0.1:8080/admin | grep -q 'ci-only-password'
+          rm -f "$jar"
+      - name: Container logs on failure
       - name: Container logs on failure
         if: failure()
         run: docker logs fun-prompts
