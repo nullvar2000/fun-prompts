@@ -9,11 +9,13 @@ authenticated admin panel, and an unauthenticated write surface for endpoints
 would let any page that reaches this origin redirect where the builder calls.
 What this API does offer is generation — submit a prompt, refine a published
 build, cancel a job — because that is what a client on the LAN is here for.
+Those writes carry no session, so they carry an origin check instead: see
+:func:`app.web.security.same_origin_write`.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.build.guard import PromptRejected
@@ -21,6 +23,7 @@ from app.build.orchestrator import Target
 from app.container import Container
 from app.domain.errors import ValidationError
 from app.domain.status import BuildStatus, JobState
+from app.web.security import same_origin_write
 
 router = APIRouter(prefix="/api", tags=["build"])
 
@@ -52,6 +55,17 @@ def _container(request: Request) -> Container:
     return container
 
 
+def _same_origin(request: Request) -> None:
+    """Refuse a write that a browser says came from another origin.
+
+    The API has no session, so there is no token to compare. Without this, a
+    form on someone else's page could post to ``/api/jobs/{id}/cancel`` — which
+    takes no body, so a plain cross-site form reaches it — and cancel whatever
+    the visitor had running.
+    """
+    same_origin_write(request, request.app.state.settings)
+
+
 @router.get("/targets")
 def list_targets(request: Request) -> list[dict]:
     container = _container(request)
@@ -67,7 +81,7 @@ def list_targets(request: Request) -> list[dict]:
     ]
 
 
-@router.post("/prompts", status_code=202)
+@router.post("/prompts", status_code=202, dependencies=[Depends(_same_origin)])
 def submit_prompt(payload: SubmitBody, request: Request) -> dict:
     container = _container(request)
     targets = [Target(t.endpoint_id, t.model_row_id) for t in payload.targets]
@@ -89,7 +103,7 @@ def submit_prompt(payload: SubmitBody, request: Request) -> dict:
     }
 
 
-@router.post("/builds/{build_id}/refine", status_code=202)
+@router.post("/builds/{build_id}/refine", status_code=202, dependencies=[Depends(_same_origin)])
 def refine_build(build_id: int, payload: RefineBody, request: Request) -> dict:
     """Queue a follow-up turn on a published build, on that build's model."""
     container = _container(request)
@@ -168,7 +182,7 @@ def job_status(request: Request) -> dict:
     }
 
 
-@router.post("/jobs/{job_id}/cancel")
+@router.post("/jobs/{job_id}/cancel", dependencies=[Depends(_same_origin)])
 def cancel_job(job_id: int, request: Request) -> dict:
     container = _container(request)
     job = container.pipeline.request_cancel(job_id)

@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import Settings
+
+#: Methods that change something, and so have an origin to answer for.
+UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 def artifact_origin(settings: Settings) -> str:
@@ -43,6 +47,73 @@ def gallery_origin(settings: Settings) -> str:
 def gallery_origins(settings: Settings) -> tuple[str, ...]:
     """Every origin allowed to embed an artifact."""
     return (gallery_origin(settings), *settings.extra_frame_ancestors)
+
+
+def origin_of(url: str) -> str | None:
+    """``scheme://host[:port]`` with a default port dropped, or None.
+
+    The host part is taken from the netloc rather than from ``hostname``,
+    because ``hostname`` un-quotes an IPv6 literal and drops the brackets, and
+    ``http://[::1]:8081`` has to compare equal to itself.
+    """
+    try:
+        parts = urlsplit(url)
+        scheme = (parts.scheme or "").lower()
+        port = parts.port
+        # Drop any userinfo, then the port, keeping brackets intact.
+        host = parts.netloc.rsplit("@", 1)[-1]
+    except ValueError:
+        # A header no browser would send: bad port, unbalanced brackets.
+        return None
+    if port is not None:
+        suffix = f":{port}"
+        if host.endswith(suffix):
+            host = host[: -len(suffix)]
+    host = host.lower()
+    if not scheme or not host:
+        return None
+    default = 443 if scheme == "https" else 80
+    if port is None or port == default:
+        return f"{scheme}://{host}"
+    return f"{scheme}://{host}:{port}"
+
+
+def write_origins(request: Request, settings: Settings) -> set[str]:
+    """Origins whose writes this app will act on.
+
+    The host the request actually arrived at is included because users reach the
+    gallery by whatever name and port the container is published on, which is
+    not always what ``FP_GALLERY_BASE_URL`` says. The artifact origin is
+    deliberately *not* included: a generated app must not be able to submit
+    prompts, revise builds or cancel jobs.
+    """
+    origins = {origin_of(str(request.base_url))}
+    origins.add(origin_of(gallery_origin(settings)))
+    return {origin for origin in origins if origin}
+
+
+def same_origin_write(request: Request, settings: Settings) -> None:
+    """Refuse a write that a browser says came from another origin.
+
+    The gallery has no session, so there is no CSRF token to check for the
+    public write routes. What it can check is the origin a browser attaches to
+    the request: every modern browser sends ``Origin`` on a POST, and this
+    origin's ``Referrer-Policy: no-referrer`` means ``Referer`` is normally
+    absent, so ``Origin`` is the header that decides.
+
+    A request that carries neither header is not a browser cross-site request —
+    it is curl, a health check or a test client — so it is allowed. The point is
+    to stop a page on someone else's origin from pushing the builder around, not
+    to authenticate callers.
+    """
+    if request.method not in UNSAFE_METHODS:
+        return
+    header = request.headers.get("origin") or request.headers.get("referer")
+    if not header:
+        return
+    source = origin_of(header)
+    if source is None or source not in write_origins(request, settings):
+        raise HTTPException(403, "this form came from another origin")
 
 
 def build_csp(settings: Settings) -> str:
