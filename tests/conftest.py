@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import os
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.storage.db import Database
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +35,26 @@ def settings(tmp_path) -> Settings:
 
 
 @pytest.fixture
+def bare_settings(settings: Settings) -> Settings:
+    """Same as ``settings`` but with seeding off, for isolated repository tests."""
+    return replace(settings, seed_on_start=False)
+
+
+@pytest.fixture
+def db(settings: Settings) -> Database:
+    database = Database(settings.db_path, busy_timeout_ms=settings.db_idle_timeout_ms)
+    assert database.migrate(), "expected the initial migration to apply"
+    return database
+
+
+@pytest.fixture
 def client(settings: Settings):
     with TestClient(create_app(settings)) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def bare_client(bare_settings: Settings):
+    """Client with no seeded content, so counts are meaningful."""
+    with TestClient(create_app(bare_settings)) as test_client:
         yield test_client
