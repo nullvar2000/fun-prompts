@@ -1,0 +1,96 @@
+"""Composition root.
+
+The only module that wires layers together. ``create_app`` receives resolved
+:class:`Settings` and returns the gallery/admin/API application served on
+``settings.port``; the artifact origin runs as a separate ASGI app on
+``settings.artifact_port`` (added in M4) so generated HTML never shares an
+origin, cookies, or API surface with the gallery.
+"""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+
+from app import logsetup
+from app.config import Settings, bootstrap_secrets, load_settings
+from app.web.templating import templates
+from app.web.security import SecurityHeaders
+
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR.parent / "gallery_static"
+
+__all__ = ["app", "create_app", "main"]
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Build the gallery/admin/API app. Secrets are resolved during startup."""
+    settings = settings or load_settings()
+    logsetup.configure(settings.log_level)
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        resolved = bootstrap_secrets(application.state.settings)
+        application.state.settings = resolved
+        log = logsetup.get("app.main")
+        log.info("configuration resolved:")
+        for key, value in resolved.redacted_dump().items():
+            log.info("  %-30s %s", key, value)
+        yield
+
+    application = FastAPI(
+        title="fun-prompts",
+        description=(
+            "Gallery of zero-shot applications built by AI, and the builder that makes them."
+        ),
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+    application.state.settings = settings
+    application.add_middleware(SecurityHeaders, settings=settings)
+
+    @application.get("/healthz")
+    async def healthz() -> dict[str, object]:
+        resolved: Settings = application.state.settings
+        return {
+            "status": "ok",
+            "version": application.version,
+            "artifact_origin": resolved.artifact_base_url,
+        }
+
+    @application.get("/")
+    async def home(request: Request):
+        resolved: Settings = request.app.state.settings
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={"artifact_origin": resolved.artifact_base_url},
+        )
+
+    if STATIC_DIR.is_dir():
+        application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    return application
+
+
+app = create_app()
+
+
+def main() -> None:
+    import uvicorn
+
+    settings = load_settings()
+    logsetup.configure(settings.log_level)
+    uvicorn.run(
+        "app.main:app",
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+    )
+
+
+if __name__ == "__main__":
+    main()

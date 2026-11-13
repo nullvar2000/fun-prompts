@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {# Generated apps live on a different origin; scripts read it from here so the
+       CSP can keep script-src 'self' with no inline scripts. #}
+    <meta name="artifact-origin" content="{{ artifact_origin }}" />
+    <title>{% block title %}fun-prompts{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/htmx.min.js" defer></script>
+  </head>
+  <body>
+    <header class="site-head">
+      <a class="brand" href="/">fun-prompts</a>
+      <nav>
+        <a href="/gallery">gallery</a>
+        <a href="/admin">admin</a>
+      </nav>
+    </header>
+    <main>{% block main %}{% endblock %}</main>
+    <footer class="site-foot">
+      zero-shot apps, built by whichever model you point at
+    </footer>
+  </body>
+</html>
