@@ -31,6 +31,9 @@ def settings(tmp_path) -> Settings:
         data_dir=tmp_path / "data",
         admin_password="test-admin-password",
         session_secret="0" * 64,
+        # TestClient apps must not grab ports; the artifact origin is tested
+        # directly (ASGI-level, and once over real TCP) instead.
+        run_artifact_server=False,
     )
 
 

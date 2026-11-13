@@ -20,6 +20,7 @@ from app.config import Settings, bootstrap_secrets, load_settings
 from app.container import build_container
 from app.storage.seed import SeedImporter
 from app.web.api.routes_builds import router as builds_router
+from app.web.artifact_server import create_artifact_app, start_artifact_server
 from app.web.templating import templates
 from app.web.security import SecurityHeaders
 
@@ -66,9 +67,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         container.worker.recover_interrupted()
         await container.worker.start()
+
+        artifact_server = None
+        artifact_task = None
+        if resolved.run_artifact_server:
+            artifact_app = create_artifact_app(resolved, db=container.db)
+            artifact_server, artifact_task = await start_artifact_server(artifact_app, resolved)
+            log.info(
+                "artifact origin listening on %s:%s (serves artifacts only)",
+                resolved.host,
+                resolved.artifact_port,
+            )
+
         try:
             yield
         finally:
+            if artifact_server is not None and artifact_task is not None:
+                artifact_server.should_exit = True  # type: ignore[attr-defined]
+                await artifact_task
             await container.worker.stop()
 
     application = FastAPI(

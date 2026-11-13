@@ -7,6 +7,8 @@ session cookie, the artifact origin must hold nothing.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -17,6 +19,28 @@ from app.config import Settings
 def artifact_origin(settings: Settings) -> str:
     """``http://host:port`` form used inside CSP ``frame-src``."""
     return settings.artifact_base_url.rstrip("/")
+
+
+def gallery_origin(settings: Settings) -> str:
+    """The origin the gallery is browsed at, derived from the artifact URL.
+
+    ``FP_ARTIFACT_BASE_URL`` is already the hostname users actually browse to
+    (it feeds the iframe ``src``), so swapping its port for ``FP_PORT`` gives the
+    other half of the pair. Splitting on the last colon keeps IPv6 literals
+    (``[::1]:8081``) intact.
+    """
+    base = settings.artifact_base_url.rstrip("/")
+    parsed = urlsplit(base)
+    host_part = parsed.netloc
+    if parsed.port is not None:
+        host_part = host_part.rsplit(":", 1)[0]
+    scheme = parsed.scheme or "http"
+    return f"{scheme}://{host_part}:{settings.port}"
+
+
+def gallery_origins(settings: Settings) -> tuple[str, ...]:
+    """Every origin allowed to embed an artifact."""
+    return (gallery_origin(settings), *settings.extra_frame_ancestors)
 
 
 def build_csp(settings: Settings) -> str:

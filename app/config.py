@@ -119,6 +119,9 @@ class Settings:
 
     # --- boot ---------------------------------------------------------------
     seed_on_start: bool = True
+    #: The artifact origin runs beside the gallery in the same process. Tests
+    #: turn it off; nothing else should need to.
+    run_artifact_server: bool = True
     prompts_dir: Path = REPO_ROOT / "prompts"
     seed_apps_dir: Path = REPO_ROOT / "seed" / "apps"
     log_level: str = "INFO"
@@ -168,6 +171,7 @@ class Settings:
             "FP_RATE_LIMIT_PER_HOUR": self.rate_limit_per_hour,
             "FP_ALLOW_ORIGINS": self.extra_frame_ancestors,
             "FP_SEED_ON_START": self.seed_on_start,
+            "FP_RUN_ARTIFACT_SERVER": self.run_artifact_server,
             "FP_PROMPTS_DIR": str(self.prompts_dir),
             "FP_SEED_APPS_DIR": str(self.seed_apps_dir),
             "FP_LOG_LEVEL": self.log_level,
@@ -226,6 +230,7 @@ def load_settings() -> Settings:
         rate_limit_per_hour=_int("FP_RATE_LIMIT_PER_HOUR", 0, minimum=0),
         extra_frame_ancestors=_list("FP_ALLOW_ORIGINS"),
         seed_on_start=_bool("FP_SEED_ON_START", True),
+        run_artifact_server=_bool("FP_RUN_ARTIFACT_SERVER", True),
         prompts_dir=Path(_str("FP_PROMPTS_DIR", str(REPO_ROOT / "prompts"))).expanduser(),
         seed_apps_dir=Path(_str("FP_SEED_APPS_DIR", str(REPO_ROOT / "seed" / "apps"))).expanduser(),
         log_level=_str("FP_LOG_LEVEL", "INFO").upper(),
