@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from app.domain.errors import ValidationError
 from app.domain.models import Endpoint, ModelTarget
 from app.storage.db import Database, utc_now
 
@@ -32,19 +33,24 @@ class EndpointRepo:
         temperature: float | None = None,
     ) -> Endpoint:
         now = utc_now()
-        with self.db.transaction() as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO endpoints (name, base_url, provider_type, api_key_encrypted,
-                                       enabled, timeout_s, max_output_tokens, temperature,
-                                       created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (name, base_url, provider_type, api_key_encrypted, int(enabled),
-                 timeout_s, max_output_tokens, temperature, now, now),
-            )
-            endpoint_id = int(cursor.lastrowid)
-            self._insert_tags(conn, endpoint_id, tags)
+        try:
+            with self.db.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO endpoints (name, base_url, provider_type, api_key_encrypted,
+                                           enabled, timeout_s, max_output_tokens, temperature,
+                                           created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (name, base_url, provider_type, api_key_encrypted, int(enabled),
+                     timeout_s, max_output_tokens, temperature, now, now),
+                )
+                endpoint_id = int(cursor.lastrowid)
+                self._insert_tags(conn, endpoint_id, tags)
+        except sqlite3.IntegrityError as exc:
+            # Names are how operators and the UI refer to endpoints, so a
+            # collision is a user-facing problem, not a database one.
+            raise ValidationError(f"an endpoint named {name!r} already exists") from exc
         return self.get(endpoint_id)  # type: ignore[return-value]
 
     def get(self, endpoint_id: int) -> Endpoint | None:

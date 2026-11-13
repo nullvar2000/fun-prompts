@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.errors import ValidationError
 from app.domain.status import PromptSource
 from app.storage.db import Database
 from app.storage.repos.builds import BuildRepo
@@ -43,7 +44,9 @@ def test_create_read_and_update_roundtrip(endpoints: EndpointRepo) -> None:
 
 def test_names_are_unique(endpoints: EndpointRepo) -> None:
     endpoints.create(name="dup", base_url="http://a")
-    with pytest.raises(Exception):
+    # The collision is reported as a domain error so the CLI and the admin form
+    # can show a sentence instead of a database traceback.
+    with pytest.raises(ValidationError, match="already exists"):
         endpoints.create(name="dup", base_url="http://b")
 
 
