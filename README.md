@@ -5,10 +5,11 @@ them. Point it at any OpenAI-compatible LLM endpoint, submit a prompt, and it
 fans that prompt out to up to four models at once, validates what comes back,
 tags it with the model that produced it, and publishes it to the gallery.
 
-**Status:** the builder, the gallery and the admin panel all work. Submit a
-prompt from the form or the API, compare up to four outputs side by side, and
-revise a published app against the model that made it. What is left is the
-end-to-end test pass over a real container (M7).
+**Status:** the whole thing works. Submit a prompt from the form or the API,
+compare up to four outputs side by side, revise a published app against the model
+that made it, and administer endpoints from `/admin`. Every layer is wired
+together and covered, including one end-to-end pass over real sockets and a
+container job that builds inside the shipped image.
 
 | Milestone | What lands | |
 | --- | --- | --- |
@@ -19,7 +20,7 @@ end-to-end test pass over a real container (M7).
 | M4 | Gallery, home "3 random", build pages, artifact origin on :8081 | ✅ |
 | M5 | Admin: endpoints, models, tags, moderation, failure logs | ✅ |
 | M6 | Side-by-side comparison (up to 4), refine with version history | ✅ |
-| M7 | E2E tests, container smoke test in CI, docs | ⏳ |
+| M7 | E2E tests, container smoke test in CI, docs | ✅ |
 
 ## Quick start — local
 
@@ -234,7 +235,7 @@ app/
 gallery_static/      style.css + vendored htmx.min.js (no CDN anywhere)
 prompts/             seed prompts (markdown)
 seed/apps/           pre-built HTML imported as seed builds
-tests/               unit/API tests, FakeProvider, fake OpenAI server
+tests/               unit/API tests, e2e over real TCP, FakeProvider, fake OpenAI server
 ```
 
 Layering is one-way: `domain → storage → providers → build → web`. No layer
@@ -298,7 +299,7 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 .venv/bin/python -m pyflakes app tests
 ```
 
-440 tests cover config and secret bootstrap, security headers, the schema and
+443 tests cover config and secret bootstrap, security headers, the schema and
 repositories, provider adapters over real TCP (including timeouts and refused
 addresses), the prompt guard, HTML extraction, the artifact gate, the pipeline's
 publish/repair/reject/fail/cancel outcomes, follow-up turns (same model, version
@@ -311,6 +312,14 @@ admin session and CSRF gate (tampering, expiry, throttling, cross-site writes),
 and the admin panel's create/edit/moderate behaviour including the ceiling clamps
 and allowlist refusals.
 
+`tests/test_e2e.py` substitutes nothing: a scripted OpenAI-compatible endpoint on
+a TCP port, the production adapter dialling it because that is the endpoint's
+provider type, the queue in the app's own process, and the artifact origin on a
+second port. It pins the three things only the wired-together app can get right —
+the bytes served are the bytes the model sent with the fence stripped and nothing
+else altered, two turns ask the same model and the second carries the first
+document back as data, and a rejected artifact reaches no browser at all.
+
 CI runs `pyflakes` and `pytest`, then builds the image and checks a running
 container: health, the gallery, the sandboxed frame, the artifact origin's header
 set (no `X-Frame-Options`, no `Set-Cookie`), that downloads arrive as
@@ -318,3 +327,11 @@ attachments, the submission and comparison pages render with their sandboxing,
 that a cross-origin write is refused, and the admin gate end to end — anonymous
 redirects, cookie flags, a CSRF refusal, a throttled wrong password, and a real
 sign-in that reaches the endpoints page.
+
+A second container job builds *inside* the image, with the scripted endpoint on
+the runner and the container on the runner's network: the in-image CLI registers
+the endpoint (only because `FP_ENDPOINT_ALLOWLIST` names it) and discovers models,
+a prompt posted through the `/new` form publishes carrying the endpoint's tag with
+the extraction reported as `fence`, the artifact origin serves those bytes and
+nothing else, the download route hands over the same bytes as an attachment, and a
+follow-up turn adds v2 on the same model while the build stays published.
