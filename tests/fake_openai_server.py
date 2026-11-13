@@ -153,6 +153,7 @@ async def _respond_raw(send, status: int, body_text: str, extra_headers=None) ->
 
 if __name__ == "__main__":  # pragma: no cover - developer tool
     import argparse
+    from pathlib import Path
 
     import uvicorn
 
@@ -161,7 +162,26 @@ if __name__ == "__main__":  # pragma: no cover - developer tool
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--delay", type=float, default=0.0, help="slow responses, for timeout tests")
     parser.add_argument("--status", type=int, default=200, help="force an error status")
+    parser.add_argument("--completion", default=None, help="literal completion text")
+    parser.add_argument(
+        "--completion-file",
+        default=None,
+        help="serve a file as the completion, e.g. --completion-file seed/apps/dice-roller.html",
+    )
+    parser.add_argument("--fence", action="store_true", help="wrap the completion in a markdown fence")
+    parser.add_argument("--model", default="fake-1", help="model name echoed in responses")
     args = parser.parse_args()
 
-    server = FakeOpenAIServer(delay_s=args.delay, status=args.status)
+    completion = args.completion
+    if args.completion_file:
+        completion = Path(args.completion_file).read_text()
+    if args.fence and completion:
+        completion = f"Sure — here is the app:\n\n```html\n{completion}\n```\n\nEnjoy!"
+
+    server = FakeOpenAIServer(
+        delay_s=args.delay,
+        status=args.status,
+        completion=completion or FakeOpenAIServer().completion,
+        model_name=args.model,
+    )
     uvicorn.run(server, host=args.host, port=args.port, log_level="warning")
