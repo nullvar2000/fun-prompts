@@ -53,6 +53,23 @@ jobs:
           curl -fsS http://127.0.0.1:8080/healthz | grep -q '"status":"ok"'
           curl -fsS http://127.0.0.1:8080/ | grep -q '/static/htmx.min.js'
           curl -fsS -D - -o /dev/null http://127.0.0.1:8080/ | grep -qi 'content-security-policy'
+      - name: Check the gallery and the artifact origin
+        run: |
+          # Seed import publishes three apps, so the gallery must be non-empty.
+          curl -fsS http://127.0.0.1:8080/ | grep -q 'published app'
+          curl -fsS http://127.0.0.1:8080/gallery | grep -q 'class="chip"'
+          curl -fsS http://127.0.0.1:8080/build/1 | grep -q 'sandbox="allow-scripts"'
+          # The artifact is framed from the second origin, with a stricter CSP.
+          curl -fsS http://127.0.0.1:8080/build/1 | grep -q 'src="http://localhost:8081/artifact/'
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8081/artifact/1 \
+            | grep -qi "content-security-policy: default-src 'none'"
+          # X-Frame-Options on the artifact would break framing; a Set-Cookie on
+          # that origin would break the isolation the second port exists for.
+          ! curl -fsS -D - -o /dev/null http://127.0.0.1:8081/artifact/1 | grep -qi 'x-frame-options'
+          ! curl -fsS -D - -o /dev/null http://127.0.0.1:8081/artifact/1 | grep -qi 'set-cookie'
+          # Downloads are attachments on the gallery origin, never inline HTML.
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8080/download/build/1 \
+            | grep -qi 'content-disposition: attachment; filename="'
       - name: Container logs on failure
         if: failure()
         run: docker logs fun-prompts

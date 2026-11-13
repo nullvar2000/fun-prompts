@@ -5,8 +5,9 @@ them. Point it at any OpenAI-compatible LLM endpoint, submit a prompt, and it
 fans that prompt out to up to four models at once, validates what comes back,
 tags it with the model that produced it, and publishes it to the gallery.
 
-**Status:** the builder works end to end — submit a prompt over `/api`, watch it
-publish. The gallery pages, admin panel and comparison view are still to come.
+**Status:** the builder and the gallery both work — submit a prompt over `/api`,
+watch it publish, browse the result. The admin panel and the comparison view are
+still to come.
 
 | Milestone | What lands | |
 | --- | --- | --- |
@@ -14,7 +15,7 @@ publish. The gallery pages, admin panel and comparison view are still to come.
 | M1 | SQLite schema, migrations, repositories, seed import | ✅ |
 | M2 | Provider adapters: `chat/completions`, `/v1/models` discovery, SSRF guard | ✅ |
 | M3 | Prompt guard, artifact extract/validate, job queue + worker, submission API | ✅ |
-| M4 | Gallery, home "3 random", build pages, artifact origin on :8081 | ⏳ |
+| M4 | Gallery, home "3 random", build pages, artifact origin on :8081 | ✅ |
 | M5 | Admin: endpoints, models, tags, moderation, failure logs | ⏳ |
 | M6 | Side-by-side comparison (up to 4), refine with version history | ⏳ |
 | M7 | E2E tests, container smoke test in CI, docs | ⏳ |
@@ -70,6 +71,25 @@ fan-out, and it is capped by `FP_MAX_COMPARISON_TARGETS`.
 Endpoint writes only exist in the CLI until the authenticated admin panel (M5)
 lands; until then there is deliberately no unauthenticated write surface.
 
+## Browse
+
+| URL | What it is |
+| --- | --- |
+| `/` | three published apps, chosen at random on every visit |
+| `/gallery` | search, AND-combined tag chips, filter by endpoint+model, sort, paging |
+| `/build/{id}` | the app in a sandboxed frame, plus endpoint, model, latency, tokens, extraction notes and version history |
+| `/prompt/{slug}` | the prompt and every public build made from it |
+| `/download/{version_id}` | the stored file as an attachment |
+| `:8081/artifact/{version_id}` | the artifact origin: artifact bytes and nothing else |
+
+The artifact origin runs in the same process as the gallery on a second port
+(`FP_RUN_ARTIFACT_SERVER=1`). It has three routes, sets no cookies, serves no API
+— every path is GET/HEAD only — and its CSP is
+`default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'`, so a
+generated page can draw but cannot reach a network. The gallery frames it with
+`sandbox="allow-scripts"` and no `allow-same-origin`, which gives the frame an
+opaque origin.
+
 ## Quick start — container
 
 ```sh
@@ -113,6 +133,7 @@ app/
   build/             guard → provider → extract → validate → publish
   worker/            the queue loop that runs builds
   web/               security headers, Jinja templates, JSON API
+    artifact_server.py  the :8081 origin — artifact bytes only
 gallery_static/      style.css + vendored htmx.min.js (no CDN anywhere)
 prompts/             seed prompts (markdown)
 seed/apps/           pre-built HTML imported as seed builds
@@ -141,6 +162,14 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
   under the size cap with no external URLs, no `<base>` and no meta refresh,
   before it is ever published. Rejected attempts are kept in `build_failures`
   with the raw response, so a misbehaving endpoint can be read about later.
+- **Containment at serve time.** The artifact origin's CSP forbids every fetch
+  (`connect-src 'none'`), and the frame is sandboxed without
+  `allow-same-origin`. `FP_MAX_ARTIFACT_KB` is re-checked when bytes are served,
+  because env values are ceilings: a row written under a larger cap stays
+  unserved after the cap is lowered.
+- **Hidden means gone.** Unpublishing or hiding a build or its prompt removes it
+  from the gallery, home, downloads and the artifact origin on the next request —
+  `Cache-Control: no-cache` on artifacts keeps a cached copy from outliving the row.
 
 ## Tests
 
@@ -149,8 +178,14 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 .venv/bin/python -m pyflakes app tests
 ```
 
-208 tests cover config and secret bootstrap, security headers, the schema and
+244 tests cover config and secret bootstrap, security headers, the schema and
 repositories, provider adapters over real TCP (including timeouts and refused
 addresses), the prompt guard, HTML extraction, the artifact gate, the pipeline's
 publish/repair/reject/fail/cancel outcomes, the worker's concurrency cap and
-crash recovery, the submission API, and the operator CLI.
+crash recovery, the submission API, the operator CLI, the artifact origin's
+headers and visibility rules, and the gallery pages.
+
+CI runs `pyflakes` and `pytest`, then builds the image and checks a running
+container: health, the gallery, the sandboxed frame, the artifact origin's header
+set (no `X-Frame-Options`, no `Set-Cookie`), and that downloads arrive as
+attachments.
