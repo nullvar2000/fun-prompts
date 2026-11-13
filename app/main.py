@@ -17,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app import logsetup
 from app.config import Settings, bootstrap_secrets, load_settings
+from app.storage.db import Database
+from app.storage.seed import SeedImporter
 from app.web.templating import templates
 from app.web.security import SecurityHeaders
 
@@ -39,6 +41,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.info("configuration resolved:")
         for key, value in resolved.redacted_dump().items():
             log.info("  %-30s %s", key, value)
+
+        db = Database(resolved.db_path, busy_timeout_ms=resolved.db_idle_timeout_ms)
+        applied = db.migrate()
+        if applied:
+            log.info("applied migrations: %s", applied)
+        application.state.db = db
+
+        if resolved.seed_on_start:
+            report = SeedImporter(
+                db,
+                prompts_dir=resolved.prompts_dir,
+                seed_apps_dir=resolved.seed_apps_dir,
+            ).run()
+            if report.skipped:
+                log.info("seed import already recorded, skipping")
+            else:
+                log.info(
+                    "seeded %s prompts, %s published builds from %s + %s",
+                    report.prompts,
+                    report.builds,
+                    resolved.prompts_dir,
+                    resolved.seed_apps_dir,
+                )
         yield
 
     application = FastAPI(

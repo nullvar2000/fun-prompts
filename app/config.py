@@ -16,6 +16,9 @@ from pathlib import Path
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
+#: Source checkout root, used for the default seed locations.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 class ConfigError(RuntimeError):
     """Raised when an environment variable holds an unusable value."""
@@ -116,6 +119,8 @@ class Settings:
 
     # --- boot ---------------------------------------------------------------
     seed_on_start: bool = True
+    prompts_dir: Path = REPO_ROOT / "prompts"
+    seed_apps_dir: Path = REPO_ROOT / "seed" / "apps"
     log_level: str = "INFO"
 
     # ------------------------------------------------------------------------
@@ -163,6 +168,8 @@ class Settings:
             "FP_RATE_LIMIT_PER_HOUR": self.rate_limit_per_hour,
             "FP_ALLOW_ORIGINS": self.extra_frame_ancestors,
             "FP_SEED_ON_START": self.seed_on_start,
+            "FP_PROMPTS_DIR": str(self.prompts_dir),
+            "FP_SEED_APPS_DIR": str(self.seed_apps_dir),
             "FP_LOG_LEVEL": self.log_level,
             "FP_ADMIN_PASSWORD": "***" if self.admin_password else "(generated on first boot)",
             "FP_SESSION_SECRET": "***" if self.session_secret else "(generated on first boot)",
@@ -219,6 +226,8 @@ def load_settings() -> Settings:
         rate_limit_per_hour=_int("FP_RATE_LIMIT_PER_HOUR", 0, minimum=0),
         extra_frame_ancestors=_list("FP_ALLOW_ORIGINS"),
         seed_on_start=_bool("FP_SEED_ON_START", True),
+        prompts_dir=Path(_str("FP_PROMPTS_DIR", str(REPO_ROOT / "prompts"))).expanduser(),
+        seed_apps_dir=Path(_str("FP_SEED_APPS_DIR", str(REPO_ROOT / "seed" / "apps"))).expanduser(),
         log_level=_str("FP_LOG_LEVEL", "INFO").upper(),
     )
 
