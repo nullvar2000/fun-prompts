@@ -5,9 +5,10 @@ them. Point it at any OpenAI-compatible LLM endpoint, submit a prompt, and it
 fans that prompt out to up to four models at once, validates what comes back,
 tags it with the model that produced it, and publishes it to the gallery.
 
-**Status:** the builder and the gallery both work — submit a prompt over `/api`,
-watch it publish, browse the result. The admin panel and the comparison view are
-still to come.
+**Status:** the builder, the gallery and the admin panel all work. Submit a
+prompt from the form or the API, compare up to four outputs side by side, and
+revise a published app against the model that made it. What is left is the
+end-to-end test pass over a real container (M7).
 
 | Milestone | What lands | |
 | --- | --- | --- |
@@ -16,8 +17,8 @@ still to come.
 | M2 | Provider adapters: `chat/completions`, `/v1/models` discovery, SSRF guard | ✅ |
 | M3 | Prompt guard, artifact extract/validate, job queue + worker, submission API | ✅ |
 | M4 | Gallery, home "3 random", build pages, artifact origin on :8081 | ✅ |
-| M5 | Admin: endpoints, models, tags, moderation, failure logs | ⏳ |
-| M6 | Side-by-side comparison (up to 4), refine with version history | ⏳ |
+| M5 | Admin: endpoints, models, tags, moderation, failure logs | ✅ |
+| M6 | Side-by-side comparison (up to 4), refine with version history | ✅ |
 | M7 | E2E tests, container smoke test in CI, docs | ⏳ |
 
 ## Quick start — local
@@ -66,19 +67,23 @@ curl -s localhost:8090/api/jobs          # queue state
 ```
 
 One prompt, several targets, one build per target — that is the comparison
-fan-out, and it is capped by `FP_MAX_COMPARISON_TARGETS`.
-
-Endpoint writes only exist in the CLI until the authenticated admin panel (M5)
-lands; until then there is deliberately no unauthenticated write surface.
+fan-out, and it is capped by `FP_MAX_COMPARISON_TARGETS`. Those commands are the
+API version of what the gallery's **make one** form does: open
+`http://localhost:8090/new`, tick the pairs and submit, and the redirect lands on
+the comparison of the builds it just queued. The API exists for scripts.
 
 ## Browse
 
 | URL | What it is |
 | --- | --- |
 | `/` | three published apps, chosen at random on every visit |
+| `/new` | the submission form: a prompt plus the endpoint+model pairs to fan out to |
 | `/gallery` | search, AND-combined tag chips, filter by endpoint+model, sort, paging |
-| `/build/{id}` | the app in a sandboxed frame, plus endpoint, model, latency, tokens, extraction notes and version history |
-| `/prompt/{slug}` | the prompt and every public build made from it |
+| `/build/{id}` | the app in a sandboxed frame, plus endpoint, model, latency, tokens, extraction notes, version history and the revise box |
+| `/build/{id}/status` | the frame-and-status fragment the build page re-fetches while a build or revision is moving |
+| `/compare?b=…&hide=…` | one prompt, up to four outputs side by side; `hide` folds columns away |
+| `/prompt/{slug}` | the prompt, every public build from it, the picker for comparing them, re-run and fork |
+| `/prompt/{slug}/fork` | the prompt text, editable, built as a child prompt |
 | `/download/{version_id}` | the stored file as an attachment |
 | `:8081/artifact/{version_id}` | the artifact origin: artifact bytes and nothing else |
 | `/admin` | the panel: endpoints, prompts, builds, failure and guard logs (session required) |
@@ -90,6 +95,38 @@ The artifact origin runs in the same process as the gallery on a second port
 generated page can draw but cannot reach a network. The gallery frames it with
 `sandbox="allow-scripts"` and no `allow-same-origin`, which gives the frame an
 opaque origin.
+
+## Make, compare, revise
+
+- **Make one** (`/new`) posts a prompt and a set of ticked endpoint+model pairs.
+  Each pair gets its own build of the same prompt, and the redirect lands in the
+  comparison view rather than on one build page. A rejected submission comes back
+  with the text still in the box; the reason is one of a fixed set of sentences,
+  never model or endpoint output.
+- **Compare** (`/compare?b=1&b=2`) frames up to `FP_MAX_COMPARISON_TARGETS`
+  outputs under the same sandbox rules as a build page. Show/hide and the
+  selection itself are query parameters, so a comparison is a link. With exactly
+  one output shown the grid becomes a single full-height frame. The prompt is
+  pinned at the bottom of the page: it is the one thing every column has in
+  common. A selection spanning two prompts is refused — the question a
+  comparison answers is what *one* input produced.
+- **Revise** (the box on a build page) adds a version to a build that already
+  published, and it always asks that build's own model: a version chain only
+  means something if nothing else moved. The published version keeps serving
+  while the next one is generated, and a revision that fails the gate leaves it
+  exactly where it was. The previous document is sent back as data inside
+  sentinels and clipped to `FP_REFINE_CONTEXT_CHARS` when it is too big to send
+  whole — the clipping is recorded on the version and shown, rather than
+  pretended away.
+- **Fork** copies a stored prompt (keeping `parent_prompt_id` and `source=fork`),
+  lets you edit the copy, and builds the copy. The edited text is screened like
+  any new prompt: forking is not a way around the guard. **Run it again** sends
+  the stored text unchanged to other pairs, which is the point of keeping it.
+
+Every one of those writes is a public route with no session, so each is checked
+against the origin the browser attached to it — see
+[Security posture](#security-posture) — and counted against
+`FP_RATE_LIMIT_PER_HOUR`.
 
 ## Admin panel
 
@@ -160,6 +197,18 @@ caps, publish state) live in the database and are edited in the admin panel.
 Environment values act as deployment wiring **and** as ceilings: a global
 `FP_JOB_TIMEOUT_S` still bounds an endpoint that asks for longer.
 
+Three worth knowing about:
+
+- `FP_MAX_COMPARISON_TARGETS` (4) — how many pairs one prompt may fan out to, and
+  how many columns `/compare` will show.
+- `FP_REFINE_CONTEXT_CHARS` (24000) — how much of the previous version goes back
+  to the model on a revise turn. An artifact may be 200 KB, so the context is
+  clipped from the end and the clipping is recorded on the version.
+- `FP_RATE_LIMIT_PER_HOUR` (0 = no limit) — the per-address ceiling on public
+  writes: make, fork, re-run, revise and the submission API. Counted in memory,
+  so it resets on restart. Fine on a LAN; set a number before exposing the
+  gallery, because every submission spends someone else's API budget.
+
 ## Layout
 
 ```
@@ -172,11 +221,14 @@ app/
   storage/           migrations + repositories (SQLite, WAL)
   providers/         plugin boundary for LLM backends (base.py = the contract)
   build/             guard → provider → extract → validate → publish
+    refine.py          follow-up turns: previous HTML as context, same model
   worker/            the queue loop that runs builds
   web/               security headers, Jinja templates, JSON API
     auth.py             signed admin session, csrf gate, login throttle
+    security.py         gallery origin derivation + the same-origin write gate
+    throttle.py         per-address submission ceiling
     routes_admin.py     the /admin panel
-    routes_gallery.py   home, gallery, build and prompt pages, downloads
+    routes_gallery.py   home, gallery, build/prompt/compare pages, make, fork, downloads
     artifact_server.py  the :8081 origin — artifact bytes only
     templates/          Jinja templates (admin/ is the panel)
 gallery_static/      style.css + vendored htmx.min.js (no CDN anywhere)
@@ -192,6 +244,17 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 
 - **Two origins.** `:8080` holds the admin session and the API. `:8081` serves
   generated HTML only: no cookies, no CORS, no API, strict CSP.
+- **Public writes have an origin gate.** The gallery's make/fork/re-run/revise
+  routes and the submission API carry no session, so there is no token to
+  compare; what they check instead is the origin the browser attached to the
+  request (`app/web/security.same_origin_write`). A request with neither
+  `Origin` nor `Referer` is not a browser cross-site request — curl, a health
+  check, a test client — so it is allowed; a present one has to match the host
+  being browsed or `FP_GALLERY_BASE_URL`. The artifact origin is never in that
+  set: a generated app cannot submit prompts, revise builds or cancel jobs.
+- **The gallery has a spend ceiling.** `FP_RATE_LIMIT_PER_HOUR` counts public
+  writes per address in memory and says how long to wait. Cancelling a job is
+  never counted, because that answer saves work.
 - **Cookies ignore ports**, so the admin surface is held by three independent
   things: a `SameSite=Strict` `httpOnly` session cookie (a cross-site request
   carries it not at all), a CSRF token that lives inside the signed session and
@@ -204,7 +267,14 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
   and logs them (`guard_log`). The API answers `422` without naming the rule —
   describing the pattern that matched teaches how to evade it.
 - **The builder prompt treats the task as data**, inside sentinels that user
-  text cannot close early.
+  text cannot close early. A revise turn wraps the *previous artifact* the same
+  way: it was generated by a model from user text, so it can contain a line that
+  reads like an instruction, and on the next turn that is data and never a
+  command.
+- **A revise cannot take a working app offline.** A published build has no legal
+  transition out of `published`, and a refine job never touches build status: the
+  current version keeps serving while the next one is generated, and a revision
+  rejected by the gate fails only its own job.
 - **SSRF guard** is allowlist-based (`FP_ENDPOINT_ALLOWLIST`) and always blocks
   metadata/link-local addresses. Blanket private-range blocking is deliberately
   not used — your Ollama/vLLM box lives on the LAN.
@@ -228,19 +298,23 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 .venv/bin/python -m pyflakes app tests
 ```
 
-328 tests cover config and secret bootstrap, security headers, the schema and
+440 tests cover config and secret bootstrap, security headers, the schema and
 repositories, provider adapters over real TCP (including timeouts and refused
 addresses), the prompt guard, HTML extraction, the artifact gate, the pipeline's
-publish/repair/reject/fail/cancel outcomes, the worker's concurrency cap and
-crash recovery, the submission API, the operator CLI, the artifact origin's
-headers and visibility rules, the gallery pages, the admin session and CSRF gate
-(tampering, expiry, throttling, cross-site writes), and the admin panel's
-create/edit/moderate behaviour including the ceiling clamps and allowlist
-refusals.
+publish/repair/reject/fail/cancel outcomes, follow-up turns (same model, version
+lineage, clipping, a failed revision leaving the published one alone), the
+worker's concurrency cap and crash recovery, the submission API, the operator
+CLI, the artifact origin's headers and visibility rules, the gallery pages, the
+comparison view (sandbox rules, show/hide as URLs, the one-prompt rule), the
+make/fork/re-run forms, the same-origin write gate, the submission throttle, the
+admin session and CSRF gate (tampering, expiry, throttling, cross-site writes),
+and the admin panel's create/edit/moderate behaviour including the ceiling clamps
+and allowlist refusals.
 
 CI runs `pyflakes` and `pytest`, then builds the image and checks a running
 container: health, the gallery, the sandboxed frame, the artifact origin's header
 set (no `X-Frame-Options`, no `Set-Cookie`), that downloads arrive as
-attachments, and the admin gate end to end — anonymous redirects, cookie flags, a
-CSRF refusal, a throttled wrong password, and a real sign-in that reaches the
-endpoints page.
+attachments, the submission and comparison pages render with their sandboxing,
+that a cross-origin write is refused, and the admin gate end to end — anonymous
+redirects, cookie flags, a CSRF refusal, a throttled wrong password, and a real
+sign-in that reaches the endpoints page.

@@ -101,7 +101,58 @@ jobs:
           # The configured password never appears in a page.
           ! curl -s -b "$jar" http://127.0.0.1:8080/admin | grep -q 'ci-only-password'
           rm -f "$jar"
-      - name: Container logs on failure
+      - name: Check the submission, comparison and revise surfaces
+        run: |
+          # The make-one form is a plain POST form: a textarea for the prompt and
+          # one checkbox per enabled pair (none yet, on a fresh container).
+          curl -fsS http://127.0.0.1:8080/new | grep -q 'action="/new"'
+          curl -fsS http://127.0.0.1:8080/new | grep -q 'name="body"'
+          curl -fsS http://127.0.0.1:8080/new | grep -q 'No endpoints are enabled yet'
+          # A published build offers a revise box. A follow-up turn adds a version
+          # to the published build, so the box exists only once there is one.
+          curl -fsS http://127.0.0.1:8080/build/1 | grep -q 'action="/build/1/refine"'
+          # One output of one prompt is a valid comparison: a sandboxed frame from
+          # the artifact origin, the prompt in its own pinned panel, and the
+          # single-output layout that gives the frame the page.
+          single=$(curl -fsS 'http://127.0.0.1:8080/compare?b=1')
+          echo "$single" | grep -q 'class="compare compare-single"'
+          echo "$single" | grep -q 'class="prompt-panel"'
+          echo "$single" | grep -q 'sandbox="allow-scripts"'
+          echo "$single" | grep -q 'src="http://localhost:8081/artifact/'
+          # Frames get an opaque origin: no same-origin escape into the gallery.
+          ! echo "$single" | grep -q 'allow-same-origin'
+          # The seed publishes one build per prompt, so a selection spanning two
+          # prompts is refused rather than quietly comparing unlike inputs.
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8080/compare?b=1&b=2')" = 400
+          # Show/hide lives in the URL, so a comparison is a link.
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8080/compare?b=1&hide=1')" = 200
+          # A repeated id is one column, not two.
+          test "$(curl -fsS 'http://127.0.0.1:8080/compare?b=1&b=1' | grep -c '<iframe')" = 1
+          # The prompt page carries the re-run and the fork. (The compare picker
+          # only appears once a prompt has two builds to compare, and the seed
+          # publishes one build per prompt.)
+          slug=$(curl -fsS http://127.0.0.1:8080/build/1 \
+            | sed -n 's|.*href="/prompt/\([^"]*\)".*|\1|p' | head -1)
+          test -n "$slug"
+          curl -fsS "http://127.0.0.1:8080/prompt/$slug" | grep -q "action=\"/prompt/$slug/run\""
+          curl -fsS "http://127.0.0.1:8080/prompt/$slug/fork" | grep -q "action=\"/prompt/$slug/fork\""
+      - name: Check the same-origin write gate
+        run: |
+          # The public write routes have no session, so the origin a browser
+          # attaches is what stands in for a token. /api/jobs/{id}/cancel takes no
+          # body, which is exactly the shape a cross-site HTML form posts
+          # successfully, so it is included deliberately.
+          for path in /api/jobs/1/cancel /api/prompts /build/1/refine /new; do
+            test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              -H 'Origin: http://elsewhere.example' "http://127.0.0.1:8080$path")" = 403
+          done
+          # The same write with no Origin header is not a cross-site browser
+          # request, so it is not refused on that ground.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:8080/api/jobs/1/cancel)" != 403
+          # A generated app gets no say: the artifact origin is never same-origin.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Origin: http://localhost:8081' http://127.0.0.1:8080/api/prompts)" = 403
       - name: Container logs on failure
         if: failure()
         run: docker logs fun-prompts
