@@ -155,6 +155,10 @@ class Build:
     created_at: str = ""
     updated_at: str = ""
     tags: tuple[str, ...] = ()
+    #: Denormalised from the joined prompt row so a gallery card needs one query
+    #: instead of one per card. Empty when the query did not join prompts.
+    prompt_title: str = ""
+    prompt_summary: str = ""
 
     @property
     def is_public(self) -> bool:
@@ -162,6 +166,7 @@ class Build:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row, tags: tuple[str, ...] = ()) -> Build:
+        keys = row.keys()
         return cls(
             id=row["id"],
             prompt_id=row["prompt_id"],
@@ -173,6 +178,8 @@ class Build:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             tags=tags,
+            prompt_title=row["prompt_title"] if "prompt_title" in keys else "",
+            prompt_summary=row["prompt_summary"] if "prompt_summary" in keys else "",
         )
 
 

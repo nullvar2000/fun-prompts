@@ -1,0 +1,19 @@
+{# A gallery card. Expects `build`; `model_labels` is optional. #}
+<article class="card">
+  <h3 class="card-title">
+    <a href="/build/{{ build.id }}">{{ build.prompt_title or "untitled build" }}</a>
+  </h3>
+  {% if build.prompt_summary %}<p class="card-summary">{{ build.prompt_summary }}</p>{% endif %}
+  <div class="chips">
+    {% for tag in build.tags %}
+    <a class="chip" href="/gallery?tag={{ tag | urlencode }}">{{ tag }}</a>
+    {% endfor %}
+  </div>
+  <p class="card-meta">
+    {% if model_labels and build.model_row_id in model_labels %}{{ model_labels[build.model_row_id] }}
+    · {% endif %}v{{ build.latest_version }} ·
+    <a href="/build/{{ build.id }}">open</a>
+    ·
+    <a href="/download/build/{{ build.id }}">source</a>
+  </p>
+</article>

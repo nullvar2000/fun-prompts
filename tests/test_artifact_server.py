@@ -148,11 +148,11 @@ async def test_the_two_origins_reference_each_other_the_right_way(
     bare_settings: Settings, db: Database
 ) -> None:
     """A swapped pair would break framing in a way that looks like a browser bug."""
-    gallery = TestClient(create_app(bare_settings))
+    with TestClient(create_app(bare_settings)) as gallery:
+        page = gallery.get("/")
     artifact = create_artifact_app(bare_settings, db=db)
     async with await _client(artifact) as client:
         framed = await client.get("/artifact/1")
-    page = gallery.get("/")
 
     assert "frame-src http://localhost:8081" in page.headers["content-security-policy"]
     assert "frame-ancestors http://localhost:8080" in framed.headers["content-security-policy"]

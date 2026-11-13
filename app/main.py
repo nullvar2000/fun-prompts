@@ -12,7 +12,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app import logsetup
@@ -21,7 +21,7 @@ from app.container import build_container
 from app.storage.seed import SeedImporter
 from app.web.api.routes_builds import router as builds_router
 from app.web.artifact_server import create_artifact_app, start_artifact_server
-from app.web.templating import templates
+from app.web.routes_gallery import router as gallery_router
 from app.web.security import SecurityHeaders
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -107,18 +107,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "artifact_origin": resolved.artifact_base_url,
         }
 
-    @application.get("/")
-    async def home(request: Request):
-        resolved: Settings = request.app.state.settings
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={"artifact_origin": resolved.artifact_base_url},
-        )
-
     if STATIC_DIR.is_dir():
         application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+    application.include_router(gallery_router)
     application.include_router(builds_router)
 
     return application

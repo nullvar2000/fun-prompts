@@ -1,0 +1,72 @@
+{% extends "base.html" %} {% block title %}gallery — fun-prompts{% endblock %} {% block main
+%}
+<section class="hero compact">
+  <h1>gallery</h1>
+  <p class="muted">{{ total }} published app{{ "" if total == 1 else "s" }}.</p>
+</section>
+
+<form class="filters" method="get" action="/gallery">
+  <input
+    type="search"
+    name="q"
+    value="{{ filters.q }}"
+    placeholder="search titles, prompts and tags"
+  />
+  <select name="sort">
+    {% for option in sorts %}
+    <option value="{{ option }}" {% if option == filters.sort %}selected{% endif %}>
+      {{ option }}
+    </option>
+    {% endfor %}
+  </select>
+  <button type="submit">apply</button>
+  {% if filters.q or filters.tags or filters.models or filters.sort != "newest" %}
+  <a class="clear" href="/gallery">clear</a>
+  {% endif %}
+</form>
+
+{% if tag_options %}
+<div class="chip-row" aria-label="filter by tag">
+  {% for option in tag_options %}
+  <a
+    class="chip {{ "active" if option.active }}"
+    href="{{ option.url }}"
+    aria-pressed="{{ "true" if option.active else "false" }}"
+    >{{ option.name }} <span class="count">{{ option.count }}</span></a
+  >
+  {% endfor %}
+</div>
+{% endif %} {% if model_options %}
+<div class="chip-row" aria-label="filter by model">
+  {% for option in model_options %}
+  <a
+    class="chip model {{ "active" if option.active }}"
+    href="{{ option.url }}"
+    aria-pressed="{{ "true" if option.active else "false" }}"
+    >{{ option.label }}</a
+  >
+  {% endfor %}
+</div>
+{% endif %} {% if filters.tags or filters.models %}
+<p class="muted small">
+  Tag filters combine: an app must carry
+  <strong>every</strong> selected tag.
+</p>
+{% endif %} {% if builds %}
+<section class="grid">
+  {% for build in builds %} {% include "partials/build_card.html" %} {% endfor %}
+</section>
+
+{% if pages > 1 %}
+<nav class="pager">
+  {% if filters.page > 1 %}
+  <a href="{{ filters.url(page=filters.page - 1) }}">← previous</a>
+  {% endif %}
+  <span class="muted">page {{ filters.page }} of {{ pages }}</span>
+  {% if filters.page < pages %}
+  <a href="{{ filters.url(page=filters.page + 1) }}">next →</a>
+  {% endif %}
+</nav>
+{% endif %} {% else %}
+<p class="empty">No app matches those filters.</p>
+{% endif %} {% endblock %}

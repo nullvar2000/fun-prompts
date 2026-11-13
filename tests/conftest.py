@@ -46,7 +46,11 @@ def bare_settings(settings: Settings) -> Settings:
 @pytest.fixture
 def db(settings: Settings) -> Database:
     database = Database(settings.db_path, busy_timeout_ms=settings.db_idle_timeout_ms)
-    assert database.migrate(), "expected the initial migration to apply"
+    # Not "migrate() returned something": a TestClient in the same test may well
+    # have migrated this file first, and which fixture runs first depends on the
+    # order of the test's arguments. What matters is that the schema is there.
+    database.migrate()
+    assert database.version() >= 1
     return database
 
 

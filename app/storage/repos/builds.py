@@ -14,7 +14,8 @@ from app.storage.db import Database, utc_now
 
 _BUILD_COLUMNS = """
     b.id, b.prompt_id, b.endpoint_id, b.model_row_id, b.status,
-    b.latest_version, b.hidden, b.created_at, b.updated_at
+    b.latest_version, b.hidden, b.created_at, b.updated_at,
+    p.title AS prompt_title, p.summary AS prompt_summary
 """
 
 _SORTS: dict[str, str] = {
@@ -59,7 +60,9 @@ class BuildRepo:
 
     def get(self, build_id: int) -> Build | None:
         row = self.db.query_one(
-            f"SELECT {_BUILD_COLUMNS} FROM builds b WHERE b.id = ?", (build_id,)
+            f"SELECT {_BUILD_COLUMNS} FROM builds b JOIN prompts p ON p.id = b.prompt_id "
+            "WHERE b.id = ?",
+            (build_id,),
         )
         return Build.from_row(row, self._tags_for(build_id)) if row else None
 
@@ -259,7 +262,8 @@ class BuildRepo:
         rows = self.db.query(
             f"""
             SELECT {_BUILD_COLUMNS} FROM builds b
-            WHERE b.status = ? AND b.hidden = 0
+            JOIN prompts p ON p.id = b.prompt_id
+            WHERE b.status = ? AND b.hidden = 0 AND p.hidden = 0
             ORDER BY RANDOM() LIMIT ?
             """,
             (str(BuildStatus.PUBLISHED), count),
@@ -271,7 +275,7 @@ class BuildRepo:
         return len(rows)
 
     def for_prompt(self, prompt_id: int, *, include_hidden: bool = False) -> list[Build]:
-        sql = f"SELECT {_BUILD_COLUMNS} FROM builds b WHERE b.prompt_id = ?"
+        sql = f"SELECT {_BUILD_COLUMNS} FROM builds b JOIN prompts p ON p.id = b.prompt_id WHERE b.prompt_id = ?"
         if not include_hidden:
             sql += " AND b.hidden = 0"
         sql += " ORDER BY b.created_at, b.id"

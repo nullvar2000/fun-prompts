@@ -1,0 +1,48 @@
+{# The framed artifact, or what is standing in front of it.
+
+Used inline on the build page and re-fetched by htmx while the build is still
+moving: the polling attributes are emitted only until the status is terminal, so
+a published page stops asking. #}
+<div
+  class="stage"
+  {% if not terminal %}
+  hx-get="/build/{{ build.id }}/status"
+  hx-trigger="every 1.5s"
+  hx-swap="outerHTML"
+  {% endif %}
+>
+  {% if build.status == 'published' and artifact_url %}
+  <iframe
+    class="frame"
+    title="{{ (prompt.title if prompt else 'app') }} — built by {{ (model.model_id if model else 'a model') }}"
+    src="{{ artifact_url }}"
+    {# No allow-same-origin: the frame gets an opaque origin, so a generated page
+       can touch its own DOM and nothing else. #}
+    sandbox="allow-scripts"
+    referrerpolicy="no-referrer"
+  ></iframe>
+  <p class="frame-note muted">
+    This page is served from <code>{{ artifact_origin }}</code> with
+    <code>connect-src &#39;none&#39;</code>: it can draw, it cannot call out.
+    <a href="{{ artifact_url }}" target="_blank" rel="noopener">open in a tab</a>
+  </p>
+  {% else %}
+  <p class="status status-{{ build.status }}">
+    {% if build.status == 'queued' %}queued — waiting for a worker slot
+    {% elif build.status == 'generating' %}generating — asking
+    {{ endpoint.name if endpoint else 'the endpoint' }}…
+    {% elif build.status == 'validating' %}validating the artifact…
+    {% elif build.status == 'rejected' %}rejected — the model answered, but the
+    artifact did not pass the gate
+    {% elif build.status == 'failed' %}failed — the endpoint or the job did not
+    finish
+    {% elif build.status == 'cancelled' %}cancelled{% else %}{{ build.status }}{%
+    endif %}
+    {# The raw responses stay in the database for the admin panel; the public page
+       says what happened without repeating model output. #}
+    {% if failures %}
+    <span class="muted">({{ failures | length }} attempt{{ "" if failures | length == 1 else "s" }} recorded: {{ failures | map(attribute='stage') | join(', ') }})</span>
+    {% endif %}
+  </p>
+  {% endif %}
+</div>

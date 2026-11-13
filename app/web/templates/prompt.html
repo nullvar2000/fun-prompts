@@ -1,0 +1,46 @@
+{% extends "base.html" %} {% block title %}{{ prompt.title }} — fun-prompts{% endblock %} {%
+block main %}
+<section class="build-head">
+  <p class="crumb">
+    <a href="/gallery">gallery</a>
+    {% if parent %} · forked from
+    <a href="/prompt/{{ parent.slug }}">{{ parent.title }}</a>
+    {% endif %}
+  </p>
+  <h1>{{ prompt.title }}</h1>
+  {% if prompt.summary %}<p class="tagline">{{ prompt.summary }}</p>{% endif %}
+  <p class="muted small">
+    {{ builds | length }} published build{{ "" if builds | length == 1 else "s" }} ·
+    source {{ prompt.source }}
+  </p>
+</section>
+
+<pre class="prompt-body">{{ prompt.body }}</pre>
+
+{% if builds %}
+<section class="builds-by-model">
+  <h2>built by</h2>
+  <ul class="build-list">
+    {% for build in builds %}
+    <li>
+      <a href="/build/{{ build.id }}">
+        <code>{{ endpoint_names.get(build.endpoint_id, "endpoint " ~ build.endpoint_id) }}</code>
+        · <code>{{ model_ids.get(build.model_row_id, "model " ~ build.model_row_id) }}</code>
+        · v{{ build.latest_version }}
+      </a>
+      <span class="muted">{{ build.created_at }}</span>
+      <span class="chips">
+        {% for tag in build.tags %}<span class="chip">{{ tag }}</span>{% endfor %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if builds | length > 1 %}
+  <p class="muted small">
+    Side-by-side comparison of these outputs lands in M6.
+  </p>
+  {% endif %}
+</section>
+{% else %}
+<p class="empty">No published build from this prompt yet.</p>
+{% endif %} {% endblock %}

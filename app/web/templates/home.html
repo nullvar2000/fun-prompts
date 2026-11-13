@@ -1,0 +1,47 @@
+{% extends "base.html" %} {% block title %}fun-prompts — zero-shot apps{% endblock %} {%
+block main %}
+<section class="hero">
+  <h1>fun-prompts</h1>
+  <p class="tagline">
+    Three published apps, chosen at random — a different three on every visit.
+  </p>
+  <p class="muted">
+    {{ app_count }} published app{{ "" if app_count == 1 else "s" }} from
+    {{ prompt_count }} prompt{{ "" if prompt_count == 1 else "s" }}, on
+    {{ endpoint_count }} enabled endpoint{{ "" if endpoint_count == 1 else "s" }}.
+    <a href="/gallery">browse the whole gallery →</a>
+  </p>
+</section>
+
+{% if showcase %}
+<section class="grid" aria-label="random apps">
+  {% for build in showcase %} {% include "partials/build_card.html" %} {% endfor %}
+</section>
+{% else %}
+<p class="empty">
+  Nothing published yet. Point the builder at an endpoint
+  (<code>python -m app.cli endpoints add …</code>) and submit a prompt to
+  <code>POST /api/prompts</code>.
+</p>
+{% endif %}
+
+<section class="about">
+  <h2>How a build gets here</h2>
+  <ol>
+    <li>A prompt is screened, then wrapped as data inside a fixed builder prompt.</li>
+    <li>
+      One endpoint+model pair generates one self-contained HTML document; a prompt
+      can fan out to up to four pairs at once.
+    </li>
+    <li>
+      The document is extracted from whatever the model actually returned, then
+      gated: single file, size ceiling, no external URLs, no <code>&lt;base&gt;</code>.
+    </li>
+    <li>
+      Only then is it published — served from a separate origin with
+      <code>connect-src &#39;none&#39;</code>, so an app can draw but cannot reach a
+      network.
+    </li>
+  </ol>
+</section>
+{% endblock %}

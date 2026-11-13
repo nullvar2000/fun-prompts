@@ -1,0 +1,82 @@
+{% extends "base.html" %} {% block title %}{{ (prompt.title if prompt else "build") }} —
+fun-prompts{% endblock %} {% block main %}
+<section class="build-head">
+  <p class="crumb">
+    <a href="/gallery">gallery</a>
+    {% if prompt %} · <a href="/prompt/{{ prompt.slug }}">{{ prompt.title }}</a>{% endif %}
+  </p>
+  <h1>{{ (prompt.title if prompt else "build " ~ build.id) }}</h1>
+  <div class="chips">
+    {% for tag in build.tags %}
+    <a class="chip" href="/gallery?tag={{ tag | urlencode }}">{{ tag }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+{% include "partials/build_stage.html" %}
+
+<section class="split">
+  <div class="panel">
+    <h2>this version</h2>
+    {% if version %}
+    <dl class="facts">
+      <dt>version</dt>
+      <dd>v{{ version.version_no }}</dd>
+      <dt>endpoint</dt>
+      <dd>{{ endpoint.name if endpoint else "—" }}</dd>
+      <dt>requested model</dt>
+      <dd><code>{{ model.model_id if model else "—" }}</code></dd>
+      <dt>answered as</dt>
+      <dd><code>{{ version.model_returned or "—" }}</code></dd>
+      <dt>latency</dt>
+      <dd>{{ version.latency_ms }} ms</dd>
+      <dt>tokens</dt>
+      <dd>
+        {{ version.usage.get("prompt_tokens", "?") }} in ·
+        {{ version.usage.get("completion_tokens", "?") }} out
+      </dd>
+      <dt>finish</dt>
+      <dd>{{ version.finish_reason or "—" }}</dd>
+      <dt>size</dt>
+      <dd>{{ version.html | length }} bytes</dd>
+      <dt>extraction</dt>
+      <dd>{{ version.validation.get("extract", "as-is") }}</dd>
+      {% if version.validation.get("warnings") %}
+      <dt>warnings</dt>
+      <dd>{{ version.validation.get("warnings") | join(", ") }}</dd>
+      {% endif %}
+      <dt>built</dt>
+      <dd>{{ version.created_at }}</dd>
+    </dl>
+    <p class="actions">
+      <a class="button" href="/download/{{ version.id }}">download index.html</a>
+      {% if artifact_url %}
+      <a class="button" href="{{ artifact_url }}" target="_blank" rel="noopener">open in a tab</a>
+      {% endif %}
+    </p>
+    {% else %}
+    <p class="empty">No version has been published for this build yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>history</h2>
+    <ul class="versions">
+      {% for item in versions %}
+      <li>
+        <a href="/build/{{ build.id }}?version={{ item.id }}">v{{ item.version_no }}</a>
+        <span class="muted">{{ item.created_at }}</span>
+        {% if version and item.id == version.id %}<span class="pill">shown</span>{% endif %}
+        · <a href="/download/{{ item.id }}">source</a>
+      </li>
+      {% endfor %}
+      {% if not versions %}<li class="muted">nothing yet</li>{% endif %}
+    </ul>
+    {% if prompt %}
+    <h2>the prompt</h2>
+    <pre class="prompt-excerpt">{{ prompt.body | truncate(400, true) }}</pre>
+    <p><a href="/prompt/{{ prompt.slug }}">full prompt and every build from it →</a></p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
