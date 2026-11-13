@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palette Generator</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+  .swatches { display: flex; height: calc(100vh - 5rem); }
+  .swatch {
+    flex: 1; display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 1.5rem; cursor: pointer; transition: flex .2s;
+  }
+  .swatch:hover { flex: 1.25; }
+  .hex {
+    font-family: monospace; font-weight: 700; font-size: 1rem;
+    padding: .35rem .6rem; border-radius: .4rem; background: rgba(255,255,255,.75);
+    color: #111; opacity: 0; transition: opacity .15s;
+  }
+  .swatch:hover .hex { opacity: 1; }
+  .bar {
+    display: flex; align-items: center; justify-content: center; gap: 1rem;
+    height: 5rem; background: #14151a; color: #c0caf5;
+  }
+  button {
+    font: inherit; font-weight: 700; padding: .5rem 1.5rem; cursor: pointer;
+    border: none; border-radius: .5rem; background: #7aa2f7; color: #14151a;
+  }
+  .toast { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+    background: #14151a; color: #c0caf5; padding: .5rem 1rem; border-radius: .5rem;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="swatches" id="swatches"></div>
+  <div class="bar">
+    <button id="gen">Generate</button>
+    <span>…or hit <kbd>space</kbd>. Click a swatch to copy its hex.</span>
+  </div>
+  <div class="toast" id="toast"></div>
+<script>
+  function hslToHex(h, s, l) {
+    l /= 100;
+    const a = s * Math.min(l, 1 - l) / 100;
+    const f = n => {
+      const k = (n + h / 30) % 12;
+      const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return Math.round(255 * c).toString(16).padStart(2, "0");
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+  function generate() {
+    const base = Math.floor(Math.random() * 360);
+    const scheme = ["analogous", "complementary", "triadic"][Math.floor(Math.random() * 3)];
+    const offsets = scheme === "analogous" ? [0, 20, -20, 40, -40]
+                  : scheme === "complementary" ? [0, 15, 180, 195, 165]
+                  : [0, 120, 240, 30, 150];
+    const el = document.getElementById("swatches");
+    el.innerHTML = "";
+    offsets.forEach((off, i) => {
+      const hex = hslToHex((base + off) % 360, 55 + i * 8, 35 + i * 10);
+      const d = document.createElement("div");
+      d.className = "swatch";
+      d.style.background = hex;
+      d.innerHTML = `<span class="hex">${hex}</span>`;
+      d.addEventListener("click", () => {
+        navigator.clipboard.writeText(hex).catch(() => {});
+        const t = document.getElementById("toast");
+        t.textContent = `Copied ${hex}`;
+        t.classList.add("show");
+        setTimeout(() => t.classList.remove("show"), 1200);
+      });
+      el.appendChild(d);
+    });
+  }
+  document.getElementById("gen").addEventListener("click", generate);
+  document.addEventListener("keydown", e => {
+    if (e.code === "Space") { e.preventDefault(); generate(); }
+  });
+  generate();
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dice Roller</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; font-family: system-ui, sans-serif;
+    background: #1a1b26; color: #c0caf5; padding: 2rem 1rem;
+  }
+  h1 { font-size: 2rem; margin: 0 0 1rem; }
+  .controls { display: flex; gap: .75rem; flex-wrap: wrap; justify-content: center; margin-bottom: 1.5rem; }
+  select, button {
+    font: inherit; padding: .5rem 1rem; border-radius: .5rem;
+    border: 1px solid #414868; background: #24283b; color: #c0caf5; cursor: pointer;
+  }
+  button.roll {
+    background: #7aa2f7; color: #1a1b26; font-weight: 700; font-size: 1.1rem;
+    padding: .75rem 2.5rem; border: none;
+  }
+  button.roll:active { transform: scale(.96); }
+  .total { font-size: 4rem; font-weight: 800; margin: 1rem 0; min-height: 4.5rem; }
+  .dice { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; margin-bottom: 1.5rem; }
+  .die {
+    background: #24283b; border: 2px solid #414868; border-radius: .75rem;
+    width: 4rem; height: 4rem; display: grid; place-items: center;
+    font-size: 1.75rem; font-weight: 700;
+  }
+  .die.shake { animation: shake .45s ease-in-out; }
+  .die.crit { border-color: #9ece6a; color: #9ece6a; }
+  .die.fumble { border-color: #f7768e; color: #f7768e; }
+  @keyframes shake {
+    0%,100% { transform: rotate(0); }
+    20% { transform: rotate(-12deg) translateY(-4px); }
+    40% { transform: rotate(10deg); }
+    60% { transform: rotate(-8deg) translateY(-2px); }
+    80% { transform: rotate(6deg); }
+  }
+  .history { width: min(100%, 30rem); }
+  .history h2 { font-size: 1rem; color: #565f89; }
+  .history li { font-family: monospace; padding: .25rem 0; border-bottom: 1px solid #24283b; }
+</style>
+</head>
+<body>
+  <h1>🎲 Dice Roller</h1>
+  <div class="controls">
+    <select id="count"></select>
+    <select id="sides">
+      <option value="4">d4</option><option value="6" selected>d6</option>
+      <option value="8">d8</option><option value="10">d10</option>
+      <option value="12">d12</option><option value="20">d20</option>
+    </select>
+    <button class="roll" id="roll">ROLL</button>
+  </div>
+  <div class="total" id="total"></div>
+  <div class="dice" id="dice"></div>
+  <div class="history">
+    <h2>History</h2>
+    <ul id="history"></ul>
+  </div>
+<script>
+  const countSel = document.getElementById("count");
+  const sidesSel = document.getElementById("sides");
+  for (let i = 1; i <= 10; i++) {
+    const o = document.createElement("option");
+    o.value = i; o.textContent = i + (i === 1 ? " die" : " dice");
+    if (i === 2) o.selected = true;
+    countSel.appendChild(o);
+  }
+  const history = [];
+  document.getElementById("roll").addEventListener("click", () => {
+    const n = +countSel.value, sides = +sidesSel.value;
+    const rolls = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * sides));
+    const total = rolls.reduce((a, b) => a + b, 0);
+    document.getElementById("total").textContent = n > 1 ? total : "";
+    const dice = document.getElementById("dice");
+    dice.innerHTML = "";
+    rolls.forEach(r => {
+      const d = document.createElement("div");
+      d.className = "die shake" + (r === sides ? " crit" : r === 1 ? " fumble" : "");
+      d.textContent = r;
+      dice.appendChild(d);
+    });
+    history.unshift(`${n}d${sides} → ${rolls.join(", ")} = ${total}`);
+    if (history.length > 8) history.pop();
+    document.getElementById("history").innerHTML =
+      history.map(h => `<li>${h}</li>`).join("");
+  });
+</script>
+</body>
+</html>
