@@ -23,6 +23,9 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements-dev.txt
+      # Unused imports and undefined names are the two ways a refactor silently
+      # loses behaviour in a codebase this thin, so they fail the build.
+      - run: pyflakes app tests
       - run: pytest
 
   smoke:

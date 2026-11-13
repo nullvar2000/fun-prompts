@@ -146,6 +146,7 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 
 ```sh
 .venv/bin/python -m pytest
+.venv/bin/python -m pyflakes app tests
 ```
 
 208 tests cover config and secret bootstrap, security headers, the schema and
