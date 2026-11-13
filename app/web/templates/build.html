@@ -41,6 +41,19 @@ fun-prompts{% endblock %} {% block main %}
       <dd>{{ version.html | length }} bytes</dd>
       <dt>extraction</dt>
       <dd>{{ version.validation.get("extract", "as-is") }}</dd>
+      {% if version_row and version_row.parent_no %}
+      <dt>revised from</dt>
+      <dd>
+        <a href="/build/{{ build.id }}?version={{ version.parent_version_id }}">v{{ version_row.parent_no }}</a>
+        <span class="muted">(same model)</span>
+      </dd>
+      {% endif %}
+      {% if version_row and version_row.clipped %}
+      <dt>context</dt>
+      {# Honest about what the model was shown: the previous document was too
+         big to send whole, and that is a fact about this version. #}
+      <dd>the previous version was clipped to {{ version_row.context_chars }} characters</dd>
+      {% endif %}
       {% if version.validation.get("warnings") %}
       <dt>warnings</dt>
       <dd>{{ version.validation.get("warnings") | join(", ") }}</dd>
@@ -60,11 +73,55 @@ fun-prompts{% endblock %} {% block main %}
   </div>
 
   <div class="panel">
+    <h2>revise</h2>
+    {% if refine_notice %}
+    <p class="flash {{ refine_notice.kind }}">{{ refine_notice.text }}</p>
+    {% endif %}
+    {% if build.status == 'published' %}
+      {% if refine_failed and not refine_job %}
+      {# The published version is unchanged: say that plainly rather than leaving
+         the user to wonder whether the app broke. #}
+      <p class="flash flash-error">
+        The last revision did not produce an app that passed the gate.
+        v{{ versions | length }} is still the published one.
+      </p>
+      {% endif %}
+      {% if refine_job %}
+      <p class="muted">A revision is already running. This build keeps its own model:
+        <code>{{ model.model_id if model else "—" }}</code>.</p>
+      <form class="inline" method="post" action="/build/{{ build.id }}/refine/cancel">
+        <input type="hidden" name="job_id" value="{{ refine_job.id }}">
+        <button class="button" type="submit">cancel the revision</button>
+      </form>
+      {% else %}
+      {# No model picker here on purpose: a version chain only means something if
+         nothing but the instruction changed. Another model means another build,
+         and the prompt page is where that happens. #}
+      <form method="post" action="/build/{{ build.id }}/refine">
+        <label for="instruction">
+          what should change? this asks
+          <code>{{ model.model_id if model else "the same model" }}</code> again
+        </label>
+        <textarea id="instruction" name="instruction" rows="3" maxlength="{{ refine_max_chars }}"
+          placeholder="add a high score list, and make the roll button bigger"></textarea>
+        <div class="actions">
+          <button class="button" type="submit">revise</button>
+          <span class="muted">adds v{{ next_version_no }};
+            v{{ versions | length }} stays online until the new one passes the gate</span>
+        </div>
+      </form>
+      {% endif %}
+    {% elif not terminal %}
+    <p class="muted">This build has not published yet, so there is nothing to revise.</p>
+    {% endif %}
+
     <h2>history</h2>
     <ul class="versions">
       {% for item in versions %}
       <li>
         <a href="/build/{{ build.id }}?version={{ item.id }}">v{{ item.version_no }}</a>
+        {% if item.parent_no %}<span class="muted">from v{{ item.parent_no }}</span>{% endif %}
+        {% if item.clipped %}<span class="pill">context clipped</span>{% endif %}
         <span class="muted">{{ item.created_at }}</span>
         {% if version and item.id == version.id %}<span class="pill">shown</span>{% endif %}
         · <a href="/download/{{ item.id }}">source</a>

@@ -7,19 +7,26 @@ query-building rules are testable without HTML.
 Nothing here renders artifact HTML. Generated pages are framed from the separate
 artifact origin (:mod:`app.web.artifact_server`) with ``sandbox``, and the only
 artifact bytes this origin emits are sent with ``Content-Disposition: attachment``.
+
+The two write routes (revise a build, cancel a revision) are public — the gallery
+has no session — so they are guarded by an origin check instead of a CSRF token:
+see :func:`app.web.security.same_origin_write`.
 """
 
 from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, Response
 
+from app.build.guard import PromptRejected
 from app.config import Settings
-from app.domain.models import Build, BuildVersion
-from app.domain.status import BuildStatus
+from app.domain.errors import ValidationError
+from app.domain.models import Build, BuildVersion, Job
+from app.domain.status import BuildStatus, JobKind, JobState
 from app.web.artifact_server import artifact_headers
+from app.web.security import same_origin_write
 from app.web.templating import templates
 
 router = APIRouter(tags=["gallery"])
@@ -29,6 +36,21 @@ HOME_SHOWCASE = 3
 _SORTS = ("newest", "oldest", "recently-built", "most-refined", "title")
 #: Statuses where polling is pointless: the build cannot change again.
 _TERMINAL = {BuildStatus.PUBLISHED, BuildStatus.REJECTED, BuildStatus.FAILED, BuildStatus.CANCELLED}
+#: Job states where a refine could still change which version is served.
+_OPEN_JOBS = {JobState.QUEUED, JobState.RUNNING, JobState.CANCELLING, JobState.INTERRUPTED}
+
+#: What a refine redirect can report: (css class, copy). Fixed copy only — the
+#: instruction itself is never echoed back, because it may contain anything a
+#: model later repeats.
+_REFINE_NOTICES = {
+    "queued": ("flash-ok", "Revision queued. It runs against this build's own model."),
+    "empty": ("flash-error", "An instruction is needed — tell it what to change."),
+    "too-long": ("flash-error", "That instruction is longer than the prompt limit."),
+    "refused": ("flash-error", "The submission guard refused that instruction. Nothing was queued."),
+    "not-published": ("flash-error", "Only a published build can be revised."),
+    "cancelled": ("flash-ok", "Revision cancelled."),
+    "no-job": ("flash-error", "That revision is not running any more."),
+}
 
 
 class Filters:
@@ -106,6 +128,59 @@ def _version_for_page(build: Build, requested: int | None, container) -> BuildVe
         if version is not None and version.build_id == build.id:
             return version
     return container.builds.latest_version(build.id)
+
+
+def _refine_state(container, build_id: int) -> tuple[Job | None, Job | None]:  # noqa: ANN001
+    """This build's open revise job, and its most recent revise job.
+
+    The open one matters even when the build is published: the page has to say
+    which version is live and keep polling, because a new one may take its place
+    at any moment. The most recent one matters when it failed, so the page can
+    say the revision did not happen without implying the app is broken.
+    """
+    open_job: Job | None = None
+    latest: Job | None = None
+    for job in container.jobs.for_build(build_id):  # newest first
+        if job.kind is not JobKind.REFINE:
+            continue
+        if latest is None:
+            latest = job
+        if open_job is None and job.state in _OPEN_JOBS:
+            open_job = job
+    return open_job, latest
+
+
+def _version_rows(container, build_id: int) -> list[dict]:  # noqa: ANN001
+    """The version list, with lineage the template can render without thinking.
+
+    ``parent_no`` turns "v3" into "v3 from v2" in the history, and ``clipped``
+    says when the model did not see the whole previous document.
+    """
+    versions = container.builds.versions(build_id)
+    numbers = {version.id: version.version_no for version in versions}
+    return [
+        {
+            "id": version.id,
+            "version_no": version.version_no,
+            "created_at": version.created_at,
+            "parent_no": numbers.get(version.parent_version_id)
+            if version.parent_version_id
+            else None,
+            "clipped": bool(version.validation.get("refine_clipped")),
+            "context_chars": version.validation.get("refine_context_chars"),
+        }
+        for version in versions
+    ]
+
+
+def _refine_notice(request: Request) -> dict | None:
+    """The one-word report a revise redirect left in the query string.
+
+    Only the code travels in the URL, and the copy here is fixed: what the user
+    typed is never put back into the page that redirected them.
+    """
+    notice = _REFINE_NOTICES.get(request.query_params.get("refine") or "")
+    return None if notice is None else {"kind": notice[0], "text": notice[1]}
 
 
 # --- home ---------------------------------------------------------------------
@@ -197,6 +272,8 @@ def _build_context(request: Request, build: Build, version: BuildVersion | None)
     prompt = container.prompts.get(build.prompt_id)
     endpoint = container.endpoints.get(build.endpoint_id)
     model = container.endpoints.get_model(build.model_row_id)
+    refine_job, last_refine = _refine_state(container, build.id)
+    rows = _version_rows(container, build.id)
     return {
         "artifact_origin": settings.artifact_base_url,
         "build": build,
@@ -205,9 +282,21 @@ def _build_context(request: Request, build: Build, version: BuildVersion | None)
         "endpoint": endpoint,
         "model": model,
         "artifact_url": None if version is None else _artifact_url(settings, version.id),
-        "versions": container.builds.versions(build.id),
+        "versions": rows,
+        "version_row": next(
+            (row for row in rows if version and row["id"] == version.id), None
+        ),
         "failures": container.builds.failures(build.id),
-        "terminal": build.status in _TERMINAL,
+        # A published build with a revise job running is not settled: polling has
+        # to keep going or the page shows a version that is no longer the latest.
+        "terminal": build.status in _TERMINAL and refine_job is None,
+        "refine_job": refine_job,
+        # Fixed copy only: the job's own error text may quote an endpoint, and a
+        # public page does not repeat that.
+        "refine_failed": last_refine is not None and last_refine.state is JobState.FAILED,
+        "refine_notice": _refine_notice(request),
+        "refine_max_chars": settings.max_prompt_chars,
+        "next_version_no": build.latest_version + 1,
     }
 
 
@@ -234,6 +323,68 @@ def build_status_fragment(request: Request, build_id: int, version: int | None =
         name="partials/build_stage.html",
         context=_build_context(request, build, _version_for_page(build, version, container)),
     )
+
+
+# --- revise a build (public write, origin-checked) ----------------------------
+def _same_origin(request: Request) -> None:
+    """The gallery's substitute for a CSRF token: same origin, or refuse.
+
+    There is no session here to hold a token, so what is checked is the origin
+    the browser attached to the request.
+    """
+    same_origin_write(request, _settings(request))
+
+
+def _back_to_build(build_id: int, notice: str) -> RedirectResponse:
+    """303 back to the build page with one word about what happened.
+
+    The instruction is never echoed back through the URL: it is free text, and
+    putting it in a redirect target invites it to be rendered somewhere it was
+    not meant to be.
+    """
+    return RedirectResponse(url=f"/build/{build_id}?refine={notice}", status_code=303)
+
+
+@router.post("/build/{build_id}/refine")
+def refine_build(request: Request, build_id: int, instruction: str = Form("")):
+    """Queue a follow-up turn on this build, against the build's own model."""
+    _same_origin(request)
+    settings = _settings(request)
+    container = _container(request)
+    build = _build_or_404(build_id, container)
+    if build.hidden:
+        raise HTTPException(404, "this build is hidden")
+
+    text = (instruction or "").strip()
+    if not text:
+        return _back_to_build(build.id, "empty")
+    if len(text) > settings.max_prompt_chars:
+        return _back_to_build(build.id, "too-long")
+
+    try:
+        container.pipeline.refine(build.id, text)
+    except PromptRejected:
+        return _back_to_build(build.id, "refused")
+    except ValidationError:
+        # Not published, no stored version, gone away: the page says which.
+        return _back_to_build(build.id, "not-published")
+    return _back_to_build(build.id, "queued")
+
+
+@router.post("/build/{build_id}/refine/cancel")
+def cancel_refine(request: Request, build_id: int, job_id: int = Form(...)):
+    """Stop a revision that is queued or running."""
+    _same_origin(request)
+    container = _container(request)
+    build = _build_or_404(build_id, container)
+
+    job = container.jobs.get(job_id)
+    if job is None or job.build_id != build.id or job.kind is not JobKind.REFINE:
+        return _back_to_build(build.id, "no-job")
+    result = container.pipeline.request_cancel(job.id)
+    if result is None or result.state not in {JobState.CANCELLED, JobState.CANCELLING}:
+        return _back_to_build(build.id, "no-job")
+    return _back_to_build(build.id, "cancelled")
 
 
 # --- prompt detail ------------------------------------------------------------

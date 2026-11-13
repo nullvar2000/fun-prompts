@@ -26,6 +26,19 @@ a published page stops asking. #}
     <code>connect-src &#39;none&#39;</code>: it can draw, it cannot call out.
     <a href="{{ artifact_url }}" target="_blank" rel="noopener">open in a tab</a>
   </p>
+  {% if refine_job %}
+  {# A published build is normally settled, but not while a revision runs: the
+     version being served can be replaced at any moment, so this page keeps
+     polling and says which version is live right now. #}
+  <p class="status status-queued">
+    {% if refine_job.state == 'cancelling' %}cancelling that revision…
+    {% elif refine_job.state == 'running' %}revising — asking
+    {{ endpoint.name if endpoint else 'the endpoint' }} again…
+    {% elif refine_job.state == 'interrupted' %}interrupted — will be queued again at the next start
+    {% else %}revision queued…{% endif %}
+    <span class="muted">v{{ versions | length }} stays online until the new one passes the gate.</span>
+  </p>
+  {% endif %}
   {% else %}
   <p class="status status-{{ build.status }}">
     {% if build.status == 'queued' %}queued — waiting for a worker slot

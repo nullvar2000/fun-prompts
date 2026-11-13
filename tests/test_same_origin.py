@@ -128,15 +128,22 @@ def test_a_cross_origin_write_is_refused_everywhere_it_matters(bare_client: Test
         bare_client.post("/api/builds/1/refine", json={"instruction": "x"}, headers=evil).status_code == 403
     )
     assert bare_client.post("/api/jobs/1/cancel", headers=evil).status_code == 403
+    assert bare_client.post("/build/1/refine", data={"instruction": "x"}, headers=evil).status_code == 403
+    assert bare_client.post("/build/1/refine/cancel", data={"job_id": "1"}, headers=evil).status_code == 403
     # Nothing was queued or touched on the way to the 403.
     assert bare_client.get("/api/jobs").json()["recent"] == []
 
 
-def test_the_check_does_not_break_the_routes_it_guards(bare_client: TestClient) -> None:
-    headerless = bare_client.post("/api/jobs/1/cancel")
-    assert headerless.status_code == 404  # no such job: the route ran
+def test_the_check_does_not_break_the_pages_it_guards(bare_client: TestClient) -> None:
+    headerless = bare_client.post("/build/1/refine", data={"instruction": "x"}, follow_redirects=False)
+    assert headerless.status_code == 404  # no such build: the route ran
 
-    same_origin = bare_client.post("/api/jobs/1/cancel", headers={"Origin": "http://testserver"})
+    same_origin = bare_client.post(
+        "/build/1/refine",
+        data={"instruction": "x"},
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
     assert same_origin.status_code == 404
 
 
