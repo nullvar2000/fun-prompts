@@ -159,6 +159,7 @@ class Build:
     #: instead of one per card. Empty when the query did not join prompts.
     prompt_title: str = ""
     prompt_summary: str = ""
+    prompt_slug: str = ""
 
     @property
     def is_public(self) -> bool:
@@ -180,6 +181,7 @@ class Build:
             tags=tags,
             prompt_title=row["prompt_title"] if "prompt_title" in keys else "",
             prompt_summary=row["prompt_summary"] if "prompt_summary" in keys else "",
+            prompt_slug=row["prompt_slug"] if "prompt_slug" in keys else "",
         )
 
 

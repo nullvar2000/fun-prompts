@@ -15,7 +15,7 @@ from app.storage.db import Database, utc_now
 _BUILD_COLUMNS = """
     b.id, b.prompt_id, b.endpoint_id, b.model_row_id, b.status,
     b.latest_version, b.hidden, b.created_at, b.updated_at,
-    p.title AS prompt_title, p.summary AS prompt_summary
+    p.title AS prompt_title, p.summary AS prompt_summary, p.slug AS prompt_slug
 """
 
 _SORTS: dict[str, str] = {
@@ -196,12 +196,43 @@ class BuildRepo:
         rows = self.db.query(
             "SELECT * FROM build_failures WHERE build_id = ? ORDER BY id DESC", (build_id,)
         )
+        return [self._failure_row(row) for row in rows]
+
+    def recent_failures(self, limit: int = 50, *, endpoint_id: int | None = None) -> list[dict]:
+        """Failure history across builds — the admin panel's view of the endpoints."""
+        sql = """
+            SELECT f.*, b.status AS build_status, p.title AS prompt_title,
+                   p.slug AS prompt_slug, e.name AS endpoint_name
+            FROM build_failures f
+            JOIN builds b ON b.id = f.build_id
+            JOIN prompts p ON p.id = b.prompt_id
+            JOIN endpoints e ON e.id = b.endpoint_id
+        """
+        params: list[object] = []
+        if endpoint_id is not None:
+            sql += " WHERE b.endpoint_id = ?"
+            params.append(endpoint_id)
+        sql += " ORDER BY f.id DESC LIMIT ?"
+        params.append(limit)
+        rows = self.db.query(sql, tuple(params))
         out = []
         for row in rows:
-            record = dict(row)
-            record["violations"] = json.loads(record.pop("violations_json") or "[]")
+            record = self._failure_row(row)
+            record["build_status"] = row["build_status"]
+            record["prompt_title"] = row["prompt_title"]
+            record["endpoint_name"] = row["endpoint_name"]
             out.append(record)
         return out
+
+    def failure_count(self) -> int:
+        row = self.db.query_one("SELECT COUNT(*) AS n FROM build_failures")
+        return int(row["n"]) if row else 0
+
+    @staticmethod
+    def _failure_row(row) -> dict:  # noqa: ANN001
+        record = dict(row)
+        record["violations"] = json.loads(record.pop("violations_json") or "[]")
+        return record
 
     # --- gallery reads -------------------------------------------------------
     def list(
@@ -323,6 +354,33 @@ class BuildRepo:
         else:
             rows = self.db.query(sql + " GROUP BY t.name ORDER BY n DESC, t.name")
         return [(row["name"], int(row["n"])) for row in rows]
+
+    def count_by_status(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS n FROM builds GROUP BY status")
+        return {str(row["status"]): int(row["n"]) for row in rows}
+
+    def tag_catalog(self) -> list[dict]:
+        """The tag vocabulary, with where each tag came from.
+
+        Provenance matters here: an operator tidying tags needs to know that a
+        tag is inherited from an endpoint or auto-derived, because those are
+        regenerated on the next build rather than typed by hand.
+        """
+        rows = self.db.query(
+            """
+            SELECT t.name,
+                   COUNT(*) AS builds,
+                   GROUP_CONCAT(DISTINCT bt.source) AS sources
+            FROM tags t
+            JOIN build_tags bt ON bt.tag_id = t.id
+            GROUP BY t.name
+            ORDER BY builds DESC, t.name
+            """
+        )
+        return [
+            {"name": row["name"], "builds": int(row["builds"]), "sources": (row["sources"] or "").split(",")}
+            for row in rows
+        ]
 
     def model_options(self) -> list[tuple[int, str]]:
         """(model_row_id, label) pairs for the gallery's model filter."""

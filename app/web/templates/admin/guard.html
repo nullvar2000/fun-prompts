@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}
+
+{% block title %}guard log — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<div class="page-head">
+  <h1>prompt guard</h1>
+  <a class="button" href="/admin/guard?limit=500">newer 500</a>
+</div>
+
+<p class="small muted">
+  Every submission the injection detector blocked, and every one it let through with
+  a flag. A block is a 422 to the caller and one row here; nothing was built and
+  nothing was stored for those.
+</p>
+
+{% if entries %}
+<table class="table">
+  <thead><tr><th>when</th><th>action</th><th>rule</th><th>snippet</th><th>prompt</th></tr></thead>
+  <tbody>
+    {% for entry in entries %}
+    <tr class="guard-{{ entry.action }}">
+      <td class="small muted">{{ entry.created_at }}</td>
+      <td><span class="pill{{ ' pill-off' if entry.action == 'block' else '' }}">{{ entry.action }}</span></td>
+      <td><code>{{ entry.matched_rule }}</code></td>
+      <td class="small snippet-cell">{{ entry.snippet }}</td>
+      <td class="small">
+        {% if entry.prompt_title %}{{ entry.prompt_title }}{% else %}<span class="muted">not stored</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="small muted">
+  Snippets are shown as plain text: the detector's own quoting is escaped, never
+  interpreted.
+</p>
+{% else %}
+<p class="empty">The guard has never fired.</p>
+{% endif %}
+{% endblock %}

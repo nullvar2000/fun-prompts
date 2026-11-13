@@ -21,6 +21,8 @@ from app.container import build_container
 from app.storage.seed import SeedImporter
 from app.web.api.routes_builds import router as builds_router
 from app.web.artifact_server import create_artifact_app, start_artifact_server
+from app.web.auth import AdminGuard
+from app.web.routes_admin import configure_login_throttle, router as admin_router
 from app.web.routes_gallery import router as gallery_router
 from app.web.security import SecurityHeaders
 
@@ -96,6 +98,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = settings
+    configure_login_throttle(application, settings)
+    # Added before SecurityHeaders so SecurityHeaders ends up outermost: even the
+    # guard's own 403/303/503 answers have to carry the CSP header.
+    application.add_middleware(AdminGuard)
     application.add_middleware(SecurityHeaders, settings=settings)
 
     @application.get("/healthz")
@@ -111,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     application.include_router(gallery_router)
+    application.include_router(admin_router)
     application.include_router(builds_router)
 
     return application

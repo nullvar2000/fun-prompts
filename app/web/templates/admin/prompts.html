@@ -1,0 +1,121 @@
+{% extends "admin/base.html" %}
+
+{% block title %}prompts — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<div class="page-head">
+  <h1>prompts</h1>
+  <div class="chip-row">
+    <a class="chip{{ " active" if not show_hidden }}" href="/admin/prompts">visible</a>
+    <a class="chip{{ " active" if show_hidden }}" href="/admin/prompts?show_hidden=1">all ({{ hidden_count }} hidden)</a>
+  </div>
+</div>
+
+<p class="small muted">
+  Hiding a prompt hides it and its builds from the gallery without deleting anything.
+  Re-running a prompt always keeps the stored text: the point is to see what another
+  model makes of the same words.
+</p>
+
+{% if prompts %}
+<div class="admin-rows">
+  {% for prompt in prompts %}
+  <section class="panel prompt-row">
+    <div class="page-head">
+      <h2><a href="/prompt/{{ prompt.slug }}">{{ prompt.title }}</a></h2>
+      <div class="chip-row">
+        <span class="pill">{{ prompt.slug }}</span>
+        <span class="pill">{{ prompt.source }}</span>
+        {% if prompt.hidden %}<span class="pill pill-off">hidden</span>{% endif %}
+        {% if prompt.parent_prompt_id %}<span class="pill">fork of #{{ prompt.parent_prompt_id }}</span>{% endif %}
+        <span class="pill">{{ build_groups[prompt.id]|length }} build(s)</span>
+      </div>
+    </div>
+
+    <details>
+      <summary>edit text</summary>
+      <form method="post" action="/admin/prompts/{{ prompt.id }}">
+        {{ csrf_input(request) }}
+        <div class="field">
+          <label>title</label>
+          <input name="title" type="text" maxlength="120" value="{{ prompt.title }}" />
+        </div>
+        <div class="field">
+          <label>prompt body ({{ prompt.body|length }} chars, limit {{ settings.max_prompt_chars }})</label>
+          <textarea name="body" rows="8">{{ prompt.body }}</textarea>
+        </div>
+        <div class="field">
+          <label>summary</label>
+          <input name="summary" type="text" maxlength="200" value="{{ prompt.summary }}" />
+        </div>
+        <div class="actions"><button class="button" type="submit">save</button></div>
+      </form>
+    </details>
+
+    <div class="split">
+      <div class="panel">
+        <h2>re-run on other endpoints</h2>
+        {% if targets %}
+        <form method="post" action="/admin/prompts/{{ prompt.id }}/run">
+          {{ csrf_input(request) }}
+          <ul class="checklist">
+            {% for endpoint, model in targets %}
+            <li>
+              <label>
+                <input type="checkbox" name="targets" value="{{ endpoint.id }}:{{ model.id }}" />
+                {{ endpoint.name }} · {{ model.label }}
+              </label>
+            </li>
+            {% endfor %}
+          </ul>
+          <div class="actions"><button class="button" type="submit">queue builds</button></div>
+        </form>
+        {% else %}
+        <p class="empty">No enabled endpoint has a discovered, enabled model yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="panel">
+        <h2>its builds</h2>
+        <ul class="build-list">
+          {% for build in build_groups[prompt.id] %}
+          <li>
+            <a href="/build/{{ build.id }}">#{{ build.id }}</a>
+            <span class="pill">{{ build.status }}</span>
+            <span class="pill">v{{ build.latest_version }}</span>
+            {% if build.hidden %}<span class="pill pill-off">hidden</span>{% endif %}
+            <span class="small muted">endpoint {{ build.endpoint_id }} · model {{ build.model_row_id }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>moderate</h2>
+        <div class="actions">
+          <form method="post" action="/admin/prompts/{{ prompt.id }}/hidden" class="inline">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="hidden" value="{{ 0 if prompt.hidden else 1 }}" />
+            <button class="button" type="submit">{{ "show again" if prompt.hidden else "hide" }}</button>
+          </form>
+          <form method="post" action="/admin/prompts/{{ prompt.id }}/fork" class="inline">
+            {{ csrf_input(request) }}
+            <input type="text" name="title" placeholder="new title (optional)" />
+            <button class="button" type="submit">fork</button>
+          </form>
+        </div>
+        <p class="small muted">Deleting removes the prompt and every build of it. Type <code>delete</code> to confirm.</p>
+        <form method="post" action="/admin/prompts/{{ prompt.id }}/delete">
+          {{ csrf_input(request) }}
+          <input type="text" name="confirm" placeholder="delete" required />
+          <div class="actions"><button class="button button-danger" type="submit">delete prompt</button></div>
+        </form>
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">No prompts stored.</p>
+{% endif %}
+{% endblock %}

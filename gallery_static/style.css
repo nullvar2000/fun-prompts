@@ -120,3 +120,47 @@ main { max-width: 1100px; margin: 0 auto; padding: 22px 20px 60px; }
 }
 .build-list { list-style: none; margin: 0; padding: 0; }
 .build-list li { padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+/* --- admin panel (M5) ------------------------------------------------------
+   The gallery is a showcase; the admin panel is a workbench, so it gets tables,
+   forms and status colours instead of cards. */
+.admin-top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.page-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+.page-head h1, .page-head h2 { margin: 6px 0; }
+h2.section { margin: 26px 0 8px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.flash { padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--line); margin: 0 0 16px; }
+.flash-ok { border-color: var(--accent-2); color: var(--accent-2); }
+.flash-error { border-color: var(--accent); color: var(--accent); }
+.inline { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; }
+.admin-rows { display: grid; gap: 14px; }
+.admin-rows .panel { margin: 0; }
+
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.table .pill, .chip-row .pill { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.pill-off { color: var(--accent); border-color: var(--accent); }
+
+.field { display: grid; gap: 4px; margin: 0 0 14px; }
+.field label { color: var(--muted); font-size: 13px; }
+.field-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+input[type="text"], input[type="password"], input[type="number"], textarea, select {
+  background: #14151a; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%;
+}
+textarea { font-family: ui-monospace, monospace; font-size: 13px; resize: vertical; }
+.admin-login { max-width: 420px; }
+.admin-login input { margin-bottom: 10px; }
+.checklist { list-style: none; margin: 0; padding: 0; }
+.checklist li { padding: 3px 0; font-size: 14px; }
+.checklist input[type="checkbox"] { width: auto; margin-right: 6px; }
+.button-danger { border-color: var(--accent); color: var(--accent); }
+.danger-zone { margin-top: 10px; font-size: 13px; }
+.actions-tight { margin: 0; flex-wrap: wrap; }
+.raw-response, .failure-error {
+  white-space: pre-wrap; word-break: break-word;
+  background: #14151a; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; font-family: ui-monospace, monospace; font-size: 12px;
+}
+.failure-error { margin: 8px 0; }
+.snippet-cell { font-family: ui-monospace, monospace; word-break: break-word; }

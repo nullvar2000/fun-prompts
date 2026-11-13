@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block nav %}
+<a href="/admin">dashboard</a>
+<a href="/admin/endpoints">endpoints</a>
+<a href="/admin/prompts?show_hidden=1">prompts</a>
+<a href="/admin/builds">builds</a>
+<a href="/admin/failures">failures</a>
+<a href="/admin/guard">guard</a>
+<a href="/admin/tags">tags</a>
+{% endblock %}
+
+{% block main %}
+<div class="admin-top">
+  <div class="chip-row">
+    <span class="pill">{{ status_counts.get('published', 0) }} published</span>
+    <span class="pill">{{ status_counts.get('failed', 0) + status_counts.get('rejected', 0) }} failed</span>
+    <span class="pill">{{ status_counts.get('queued', 0) + status_counts.get('generating', 0) + status_counts.get('validating', 0) }} in flight</span>
+  </div>
+  <form method="post" action="/admin/logout" class="inline">
+    {{ csrf_input(request) }}
+    <button class="button" type="submit">log out</button>
+  </form>
+</div>
+
+{% if msg %}
+<p class="flash flash-{{ kind }}">{{ msg }}</p>
+{% endif %}
+
+{% block admin %}{% endblock %}
+{% endblock %}

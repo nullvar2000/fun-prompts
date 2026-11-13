@@ -1,0 +1,34 @@
+{% extends "admin/base.html" %}
+
+{% block title %}tags — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<h1>tags</h1>
+
+<p class="small muted">
+  The tag vocabulary as the gallery sees it. <code>endpoint</code> tags are copied
+  from an endpoint's tags and <code>derived</code> tags come from the prompt text, so
+  both are regenerated on the next build of that prompt — removing one here only
+  affects that build. <code>manual</code> tags are the ones typed in on the builds page.
+</p>
+
+{% if tags %}
+<table class="table">
+  <thead><tr><th>tag</th><th>builds</th><th>where it came from</th><th></th></tr></thead>
+  <tbody>
+    {% for tag in tags %}
+    <tr>
+      <td><code>{{ tag.name }}</code></td>
+      <td>{{ tag.builds }}</td>
+      <td class="chips">
+        {% for source in tag.sources %}<span class="pill">{{ source }}</span>{% endfor %}
+      </td>
+      <td><a class="chip" href="/gallery?tag={{ tag.name|urlencode }}">view in gallery</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No tags have been applied yet.</p>
+{% endif %}
+{% endblock %}

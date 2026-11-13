@@ -1,0 +1,87 @@
+{% extends "admin/base.html" %}
+
+{% block title %}dashboard — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<h1>dashboard</h1>
+
+<div class="split">
+  <div class="panel">
+    <h2>worker</h2>
+    <dl class="facts">
+      <dt>running</dt><dd>{{ worker.running }} / {{ worker.concurrency }}</dd>
+      <dt>queued jobs</dt><dd>{{ pending }}</dd>
+      <dt>poll interval</dt><dd>{{ settings.worker_poll_interval_ms }} ms</dd>
+      <dt>timeout</dt><dd>{{ settings.job_timeout_s }} s per attempt</dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2>endpoints</h2>
+    {% if endpoints %}
+    <ul class="build-list">
+      {% for endpoint in endpoints %}
+      <li>
+        <a href="/admin/endpoints/{{ endpoint.id }}">{{ endpoint.name }}</a>
+        <span class="pill">{{ endpoint.base_url }}</span>
+        <span class="pill">{{ 'enabled' if endpoint.enabled else 'disabled' }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No endpoints yet. <a href="/admin/endpoints/new">Add one</a> — nothing can be built until there is one.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>what needs looking at</h2>
+    <dl class="facts">
+      <dt>build failures</dt><dd><a href="/admin/failures">{{ failure_count }}</a></dd>
+      <dt>guard blocks</dt><dd><a href="/admin/guard">{{ guard_count }}</a></dd>
+    </dl>
+    <p class="small muted">
+      Prompt cap {{ settings.max_prompt_chars }} chars, output cap {{ settings.max_output_tokens }} tokens.
+      Both are environment ceilings: an endpoint cannot raise them.
+    </p>
+  </div>
+</div>
+
+<h2 class="section">recent jobs</h2>
+{% if recent_jobs %}
+<table class="table">
+  <thead><tr><th>id</th><th>kind</th><th>state</th><th>build</th><th>attempts</th><th>error</th><th>updated</th></tr></thead>
+  <tbody>
+    {% for job in recent_jobs %}
+    <tr class="state-{{ job.state }}">
+      <td>{{ job.id }}</td>
+      <td>{{ job.kind }}</td>
+      <td><span class="pill">{{ job.state }}</span></td>
+      <td>{% if job.build_id %}<a href="/build/{{ job.build_id }}">#{{ job.build_id }}</a>{% endif %}</td>
+      <td>{{ job.attempts }}</td>
+      <td class="small">{{ job.error }}</td>
+      <td class="small muted">{{ job.updated_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No jobs yet.</p>
+{% endif %}
+
+<h2 class="section">latest failures</h2>
+{% if recent_failures %}
+<ul class="build-list">
+  {% for record in recent_failures %}
+  <li>
+    <span class="pill">{{ record.stage }}</span>
+    <a href="/build/{{ record.build_id }}">{{ record.prompt_title }}</a>
+    <span class="muted small">{{ record.endpoint_name }}</span>
+    <span class="small">{{ record.error_text }}</span>
+  </li>
+  {% endfor %}
+</ul>
+<p class="small"><a href="/admin/failures">all failures, including the raw responses</a></p>
+{% else %}
+<p class="empty">No failures recorded.</p>
+{% endif %}
+{% endblock %}

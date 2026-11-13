@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}sign in — fun-prompts admin{% endblock %}
+
+{% block main %}
+<section class="hero compact">
+  <h1>admin</h1>
+  <p class="tagline">Endpoints, prompts, builds and the failure record.</p>
+</section>
+
+{% if error %}
+<p class="flash flash-error">{{ error }}</p>
+{% endif %}
+
+<form method="post" action="/admin/login" class="panel admin-login">
+  {{ csrf_input(request) }}
+  <label for="password">admin password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" autofocus required />
+  <p class="small muted">
+    Set <code>FP_ADMIN_PASSWORD</code> to choose it; left unset the container prints a
+    generated one on first boot.
+  </p>
+  <div class="actions">
+    <button class="button" type="submit">sign in</button>
+  </div>
+  {% if attempts_left is defined %}
+  <p class="small muted">{{ attempts_left }} sign-in attempt(s) left for this client this hour.</p>
+  {% endif %}
+</form>
+{% endblock %}

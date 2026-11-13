@@ -82,7 +82,17 @@ class EndpointRepo:
         max_output_tokens: int | None = None,
         temperature: float | None = None,
         tags: tuple[str, ...] | None = None,
+        clear: tuple[str, ...] = (),
     ) -> Endpoint | None:
+        """Partial update: ``None`` means leave alone.
+
+        ``clear`` names columns to set back to NULL, i.e. "no per-endpoint
+        override, fall back to the environment ceilings". ``None`` cannot carry
+        that meaning here, because it already means "not supplied".
+        """
+        unknown = set(clear) - {"timeout_s", "max_output_tokens", "temperature"}
+        if unknown:
+            raise ValidationError(f"cannot clear {', '.join(sorted(unknown))}")
         assignments: list[str] = []
         params: list[object] = []
         for column, value in (
@@ -98,6 +108,8 @@ class EndpointRepo:
             if value is not None:
                 assignments.append(f"{column} = ?")
                 params.append(value)
+        for column in sorted(clear):
+            assignments.append(f"{column} = NULL")
         if not assignments and tags is None:
             return self.get(endpoint_id)
 

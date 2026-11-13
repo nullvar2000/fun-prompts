@@ -1,0 +1,97 @@
+{% extends "admin/base.html" %}
+
+{% block title %}builds — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<div class="page-head">
+  <h1>builds</h1>
+  <div class="chip-row">
+    <a class="chip{{ " active" if not active_status }}" href="/admin/builds">all</a>
+    {% for value in statuses %}
+    <a class="chip{{ " active" if active_status == value }}" href="/admin/builds?status={{ value }}">{{ value }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<p class="small muted">
+  Hiding a build takes it out of the gallery and leaves the record, including its
+  failure history. Deleting throws the record away. Only queued or finished builds
+  can be re-run; a published build gets a new version instead of a redo.
+</p>
+
+{% if builds %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>build</th><th>prompt</th><th>endpoint / model</th><th>status</th>
+      <th>ver</th><th>tags</th><th>actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for build in builds %}
+    <tr class="status-{{ build.status }}">
+      <td>
+        <a href="/build/{{ build.id }}">#{{ build.id }}</a>
+        {% if build.hidden %}<span class="pill pill-off">hidden</span>{% endif %}
+      </td>
+      <td>
+        <a href="/prompt/{{ build.prompt_slug }}">{{ build.prompt_title }}</a>
+        <div class="small muted">{{ build.prompt_summary }}</div>
+      </td>
+      <td class="small">
+        {{ endpoint_names.get(build.endpoint_id, 'endpoint ' ~ build.endpoint_id) }}
+        <div class="muted">{{ model_labels.get(build.model_row_id, 'model ' ~ build.model_row_id) }}</div>
+      </td>
+      <td><span class="pill">{{ build.status }}</span></td>
+      <td>{{ build.latest_version }}</td>
+      <td class="chips">
+        {% for tag in build.tags %}
+        <form method="post" action="/admin/builds/{{ build.id }}/tags/remove" class="inline">
+          {{ csrf_input(request) }}
+          <input type="hidden" name="tag" value="{{ tag }}" />
+          <button class="chip" type="submit" title="remove tag">{{ tag }} ×</button>
+        </form>
+        {% endfor %}
+      </td>
+      <td>
+        <div class="actions actions-tight">
+          {% if build.id in active_jobs %}
+          <form method="post" action="/admin/builds/{{ build.id }}/cancel" class="inline">
+            {{ csrf_input(request) }}
+            <button class="button" type="submit">cancel</button>
+          </form>
+          {% else %}
+          <form method="post" action="/admin/builds/{{ build.id }}/retry" class="inline">
+            {{ csrf_input(request) }}
+            <button class="button" type="submit">re-run</button>
+          </form>
+          {% endif %}
+          <form method="post" action="/admin/builds/{{ build.id }}/hidden" class="inline">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="hidden" value="{{ 0 if build.hidden else 1 }}" />
+            <button class="button" type="submit">{{ "show" if build.hidden else "hide" }}</button>
+          </form>
+        </div>
+        <details class="danger-zone">
+          <summary>delete / tag</summary>
+          <form method="post" action="/admin/builds/{{ build.id }}/tags" class="inline">
+            {{ csrf_input(request) }}
+            <input type="text" name="tag" placeholder="tag" required />
+            <button class="button" type="submit">add tag</button>
+          </form>
+          <form method="post" action="/admin/builds/{{ build.id }}/delete" class="inline">
+            {{ csrf_input(request) }}
+            <input type="text" name="confirm" placeholder="delete" required />
+            <button class="button button-danger" type="submit">delete</button>
+          </form>
+        </details>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="small muted">Showing the 100 most recently touched builds. Filter by status above to go further.</p>
+{% else %}
+<p class="empty">No builds match.</p>
+{% endif %}
+{% endblock %}

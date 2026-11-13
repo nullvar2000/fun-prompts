@@ -1,0 +1,184 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ endpoint.name if endpoint else "new endpoint" }} — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<div class="page-head">
+  <h1>{{ "edit " ~ endpoint.name if endpoint else "new endpoint" }}</h1>
+  <a class="button" href="/admin/endpoints">all endpoints</a>
+</div>
+
+<form method="post" class="panel"
+      action="/admin/endpoints{{ '/' ~ endpoint.id if endpoint else '' }}">
+  {{ csrf_input(request) }}
+
+  <div class="field">
+    <label for="name">name</label>
+    <input id="name" name="name" type="text" required maxlength="80"
+           value="{{ endpoint.name if endpoint else '' }}" />
+    <p class="small muted">How the gallery and the build rows label this endpoint. Must be unique.</p>
+  </div>
+
+  <div class="field">
+    <label for="base_url">base URL</label>
+    <input id="base_url" name="base_url" type="text" required
+           placeholder="http://ollama.lan:11434/v1"
+           value="{{ endpoint.base_url if endpoint else '' }}" />
+    <p class="small muted">
+      Validated before saving: http(s) only, no link-local or cloud metadata addresses.
+      {% if policy.allowlist %}
+      <br />FP_ENDPOINT_ALLOWLIST is set, so only these hosts are accepted:
+      {% for entry in policy.allowlist %}<code>{{ entry }}</code>{{ ", " if not loop.last }}{% endfor %}
+      {% else %}
+      <br />FP_ENDPOINT_ALLOWLIST is unset, so any non-blocked host is accepted.
+      {% endif %}
+      {% if policy.block_metadata %}<br />Metadata / link-local addresses are always refused.{% endif %}
+    </p>
+  </div>
+
+  <div class="field">
+    <label for="provider_type">provider type</label>
+    <select id="provider_type" name="provider_type" {{ "disabled" if endpoint else "" }}>
+      {% for kind in provider_types %}
+      <option value="{{ kind }}" {{ "selected" if endpoint and endpoint.provider_type == kind }}>{{ kind }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted">
+      <code>openai_compat</code> talks to <code>/chat/completions</code> and <code>/models</code>;
+      <code>seed</code> is the placeholder the bundled apps are recorded against — it has no
+      adapter, so it is never called.
+      {% if endpoint %}<br />The type is fixed once an endpoint exists; delete and re-add to change it.{% endif %}
+    </p>
+  </div>
+
+  <div class="field">
+    <label for="api_key">API key</label>
+    <input id="api_key" name="api_key" type="text" autocomplete="off"
+           placeholder="{{ 'leave blank to keep ' ~ key_state if key_state else 'optional' }}" />
+    {% if key_state %}
+    <p class="small muted">Stored key: <code>{{ key_state }}</code> (encrypted at rest; the plaintext never comes back here).</p>
+    <label class="small"><input type="checkbox" name="clear_key" value="1" /> remove the stored key</label>
+    {% endif %}
+  </div>
+
+  <div class="field">
+    <label for="tags">tags</label>
+    <input id="tags" name="tags" type="text" placeholder="local, fast"
+           value="{{ endpoint.tags|join(', ') if endpoint else '' }}" />
+    <p class="small muted">Comma separated. Every build on this endpoint inherits them.</p>
+  </div>
+
+  <div class="field-grid">
+    <div class="field">
+      <label for="timeout_s">timeout (s)</label>
+      <input id="timeout_s" name="timeout_s" type="number" min="1"
+             value="{{ endpoint.timeout_s if endpoint and endpoint.timeout_s else '' }}" />
+      <p class="small muted">Ceiling from the environment: {{ settings.job_timeout_s }} s.</p>
+    </div>
+    <div class="field">
+      <label for="max_output_tokens">max output tokens</label>
+      <input id="max_output_tokens" name="max_output_tokens" type="number" min="1"
+             value="{{ endpoint.max_output_tokens if endpoint and endpoint.max_output_tokens else '' }}" />
+      <p class="small muted">Ceiling from the environment: {{ settings.max_output_tokens }}.</p>
+    </div>
+    <div class="field">
+      <label for="temperature">temperature</label>
+      <input id="temperature" name="temperature" type="number" step="0.1" min="0" max="2"
+             value="{{ endpoint.temperature if endpoint and endpoint.temperature is not none else '' }}" />
+      <p class="small muted">0–2. Blank uses the provider default.</p>
+    </div>
+  </div>
+  <p class="small muted">A blank limit means "no per-endpoint override", i.e. use the environment value.</p>
+
+  <label class="small"><input type="checkbox" name="enabled" value="1" {{ "checked" if not endpoint or endpoint.enabled }} /> endpoint enabled (disabled endpoints cannot be built against)</label>
+
+  <div class="actions">
+    <button class="button" type="submit">{{ "save" if endpoint else "create endpoint" }}</button>
+  </div>
+</form>
+
+{% if endpoint %}
+<div class="split">
+  <div class="panel">
+    <h2>check it</h2>
+    <div class="actions">
+      <form method="post" action="/admin/endpoints/{{ endpoint.id }}/probe">
+        {{ csrf_input(request) }}
+        <button class="button" type="submit">probe</button>
+      </form>
+      <form method="post" action="/admin/endpoints/{{ endpoint.id }}/discover">
+        {{ csrf_input(request) }}
+        <button class="button" type="submit">discover models</button>
+      </form>
+    </div>
+    <p class="small muted">
+      Discovery replaces the model list with what <code>/models</code> returns right now.
+      A model you switch off here stays out of the pickers until switched back on.
+    </p>
+    {% if models %}
+    <table class="table">
+      <thead><tr><th>model</th><th>state</th><th></th></tr></thead>
+      <tbody>
+        {% for model in models %}
+        <tr>
+          <td>{{ model.label }}<br /><span class="small muted">{{ model.model_id }}</span></td>
+          <td><span class="pill{{ '' if model.enabled else ' pill-off' }}">{{ 'enabled' if model.enabled else 'disabled' }}</span></td>
+          <td>
+            <form method="post" action="/admin/endpoints/{{ endpoint.id }}/models/{{ model.id }}/enabled" class="inline">
+              {{ csrf_input(request) }}
+              <input type="hidden" name="enabled" value="{{ 0 if model.enabled else 1 }}" />
+              <button class="button" type="submit">{{ "switch off" if model.enabled else "switch on" }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No models discovered yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>recent failures here</h2>
+    {% if endpoint_failures %}
+    <ul class="build-list">
+      {% for record in endpoint_failures %}
+      <li>
+        <span class="pill">{{ record.stage }}</span>
+        <a href="/build/{{ record.build_id }}">build {{ record.build_id }}</a>
+        <span class="small">{{ record.error_text }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No failures recorded for this endpoint.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>enable / disable</h2>
+    <form method="post" action="/admin/endpoints/{{ endpoint.id }}/enabled">
+      {{ csrf_input(request) }}
+      <input type="hidden" name="enabled" value="{{ 0 if endpoint.enabled else 1 }}" />
+      <div class="actions">
+        <button class="button" type="submit">{{ "disable endpoint" if endpoint.enabled else "enable endpoint" }}</button>
+      </div>
+    </form>
+
+    <h2>delete</h2>
+    <p class="small muted">
+      Deleting an endpoint keeps the builds made against it, but they can no longer be
+      re-run. Type the name <code>{{ endpoint.name }}</code> to confirm.
+    </p>
+    <form method="post" action="/admin/endpoints/{{ endpoint.id }}/delete">
+      {{ csrf_input(request) }}
+      <input type="text" name="confirm" placeholder="{{ endpoint.name }}" required />
+      <div class="actions">
+        <button class="button button-danger" type="submit">delete endpoint</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "admin/base.html" %}
+
+{% block title %}endpoints — fun-prompts admin{% endblock %}
+
+{% block admin %}
+<div class="page-head">
+  <h1>endpoints</h1>
+  <a class="button" href="/admin/endpoints/new">add endpoint</a>
+</div>
+
+{% if rows %}
+<table class="table">
+  <thead>
+    <tr><th>name</th><th>base URL</th><th>type</th><th>state</th><th>key</th><th>tags</th><th>models</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    {% set endpoint = row.endpoint %}
+    <tr>
+      <td><a href="/admin/endpoints/{{ endpoint.id }}">{{ endpoint.name }}</a></td>
+      <td class="small">{{ endpoint.base_url }}</td>
+      <td class="small">{{ endpoint.provider_type }}</td>
+      <td>
+        {% if endpoint.enabled %}<span class="pill">enabled</span>{% else %}<span class="pill pill-off">disabled</span>{% endif %}
+      </td>
+      <td class="small">{{ row.key_state }}</td>
+      <td class="chips">{% for tag in endpoint.tags %}<span class="chip">{{ tag }}</span>{% endfor %}</td>
+      <td class="small">
+        {% if row.models %}
+          {{ row.models|length }} discovered
+          ({% for model in row.models %}{{ model.model_id }}{{ ", " if not loop.last }}{% endfor %})
+        {% else %}
+          none — <a href="/admin/endpoints/{{ endpoint.id }}">discover</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">
+  No endpoints. <a href="/admin/endpoints/new">Add one</a>, or start the app with
+  <code>FP_SEED_ON_START=1</code> to import the bundled prompts and seed builds.
+</p>
+{% endif %}
+
+<p class="small muted">
+  Seeded prompts and builds land on a disabled <code>seed</code> endpoint so they stay
+  browsable without ever being called. It is shown here like any other endpoint.
+</p>
+{% endblock %}
