@@ -175,6 +175,18 @@ def test_ipv6_literals_survive_the_port_swap(bare_settings: Settings) -> None:
     assert "frame-ancestors http://[::1]:8080" in artifact_csp(moved)
 
 
+def test_an_explicit_gallery_origin_beats_the_derivation(bare_settings: Settings) -> None:
+    """The container case: host ports are remapped, so the derivation is wrong."""
+    remapped = replace(
+        bare_settings,
+        artifact_base_url="http://localhost:18081",
+        gallery_base_url="http://gallery.lan:18080",
+    )
+    csp = artifact_csp(remapped)
+    assert "frame-ancestors http://gallery.lan:18080" in csp
+    assert "18081" not in csp.split("frame-ancestors")[1]
+
+
 async def test_health_is_a_bare_ok_on_the_artifact_origin(settings: Settings, db: Database) -> None:
     app = create_artifact_app(settings, db=db)
     async with await _client(app) as client:

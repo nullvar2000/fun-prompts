@@ -22,13 +22,15 @@ def artifact_origin(settings: Settings) -> str:
 
 
 def gallery_origin(settings: Settings) -> str:
-    """The origin the gallery is browsed at, derived from the artifact URL.
+    """The origin the gallery is browsed at, which frame-ancestors must name.
 
-    ``FP_ARTIFACT_BASE_URL`` is already the hostname users actually browse to
-    (it feeds the iframe ``src``), so swapping its port for ``FP_PORT`` gives the
-    other half of the pair. Splitting on the last colon keeps IPv6 literals
+    Set explicitly with ``FP_GALLERY_BASE_URL``. Otherwise it is derived from
+    ``FP_ARTIFACT_BASE_URL`` — already the hostname users browse to — with
+    ``FP_PORT`` swapped in. Splitting on the last colon keeps IPv6 literals
     (``[::1]:8081``) intact.
     """
+    if settings.gallery_base_url:
+        return settings.gallery_base_url.rstrip("/")
     base = settings.artifact_base_url.rstrip("/")
     parsed = urlsplit(base)
     host_part = parsed.netloc

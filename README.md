@@ -106,7 +106,11 @@ podman logs fun-prompts      # first-run.txt credentials land here too
 ```
 
 `FP_ARTIFACT_BASE_URL` must match the hostname you actually browse to: it feeds
-both the iframe `src` and the `frame-ancestors` CSP directive.
+both the iframe `src` and the `frame-ancestors` CSP directive. The gallery origin
+is derived from it by swapping in `FP_PORT`, so if you remap host ports
+(`-p 18080:8080`), also set `FP_GALLERY_BASE_URL=http://localhost:18080` —
+otherwise the browser refuses to frame the artifact and every app page is a blank
+box.
 
 ## Configuration
 
@@ -178,7 +182,7 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 .venv/bin/python -m pyflakes app tests
 ```
 
-244 tests cover config and secret bootstrap, security headers, the schema and
+246 tests cover config and secret bootstrap, security headers, the schema and
 repositories, provider adapters over real TCP (including timeouts and refused
 addresses), the prompt guard, HTML extraction, the artifact gate, the pipeline's
 publish/repair/reject/fail/cancel outcomes, the worker's concurrency cap and

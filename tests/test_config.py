@@ -96,6 +96,17 @@ def test_app_and_artifact_ports_must_differ(monkeypatch: pytest.MonkeyPatch) -> 
         load_settings()
 
 
+def test_origin_urls_must_be_absolute_origins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bare host:port here would land inside a CSP directive and do nothing."""
+    monkeypatch.setenv("FP_GALLERY_BASE_URL", "gallery.lan:18080")
+    with pytest.raises(ConfigError, match="FP_GALLERY_BASE_URL"):
+        load_settings()
+
+    monkeypatch.setenv("FP_ARTIFACT_BASE_URL", "localhost:8081")
+    with pytest.raises(ConfigError, match="FP_ARTIFACT_BASE_URL"):
+        load_settings()
+
+
 def test_secrets_are_generated_once_and_recorded(tmp_path) -> None:
     settings = replace(load_settings(), data_dir=tmp_path)
     resolved = bootstrap_secrets(settings)

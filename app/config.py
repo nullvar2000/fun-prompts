@@ -81,6 +81,13 @@ class Settings:
     #: the ``frame-ancestors`` CSP directive, so it must match the hostname users
     #: actually reach, not just "localhost".
     artifact_base_url: str = "http://localhost:8081"
+    #: Absolute base URL the gallery is browsed at, which is what the artifact
+    #: origin lists in ``frame-ancestors``. Empty means derive it from
+    #: ``artifact_base_url`` with ``FP_PORT`` swapped in — correct only when the
+    #: browser reaches the gallery on that same host and port. Remap the host
+    #: port (``-p 18080:8080``) and set this explicitly, or the browser refuses
+    #: to frame the artifact and every app page shows a blank box.
+    gallery_base_url: str = ""
 
     # --- storage ------------------------------------------------------------
     data_dir: Path = Path("/data")
@@ -150,6 +157,7 @@ class Settings:
             "FP_PORT": self.port,
             "FP_ARTIFACT_PORT": self.artifact_port,
             "FP_ARTIFACT_BASE_URL": self.artifact_base_url,
+            "FP_GALLERY_BASE_URL": self.gallery_base_url or "(derived)",
             "FP_DATA_DIR": str(self.data_dir),
             "FP_DB_FILENAME": self.db_filename,
             "FP_DB_IDLE_TIMEOUT_MS": self.db_idle_timeout_ms,
@@ -207,6 +215,7 @@ def load_settings() -> Settings:
         port=_int("FP_PORT", 8080, minimum=1, maximum=65535),
         artifact_port=_int("FP_ARTIFACT_PORT", 8081, minimum=1, maximum=65535),
         artifact_base_url=_str("FP_ARTIFACT_BASE_URL", "http://localhost:8081").rstrip("/"),
+        gallery_base_url=_str("FP_GALLERY_BASE_URL", "").rstrip("/"),
         data_dir=data_dir,
         db_filename=_str("FP_DB_FILENAME", "funprompts.db"),
         db_idle_timeout_ms=_int("FP_DB_IDLE_TIMEOUT_MS", 5000, minimum=0),
@@ -241,6 +250,12 @@ def load_settings() -> Settings:
             "FP_PORT and FP_ARTIFACT_PORT must differ: the artifact origin only "
             "isolates the gallery when it is served from a different port."
         )
+    for name, value in (
+        ("FP_ARTIFACT_BASE_URL", settings.artifact_base_url),
+        ("FP_GALLERY_BASE_URL", settings.gallery_base_url),
+    ):
+        if value and not value.startswith(("http://", "https://")):
+            raise ConfigError(f"{name} must be an absolute http(s) origin, got {value!r}")
     return settings
 
 
