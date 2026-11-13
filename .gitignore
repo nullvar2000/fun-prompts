@@ -1,0 +1,20 @@
+# local virtualenv + deps
+.venv/
+venv/
+
+# runtime state (the /data volume contents, when running outside a container)
+data/
+*.db
+*.db-wal
+*.db-shm
+keys/
+first-run.txt
+
+# local config
+.env
+
+# python cruft
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
