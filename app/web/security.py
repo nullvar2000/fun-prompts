@@ -92,6 +92,23 @@ def write_origins(request: Request, settings: Settings) -> set[str]:
     return {origin for origin in origins if origin}
 
 
+def client_key(request: Request) -> str:
+    """The address to count a submission against.
+
+    ``X-Forwarded-For`` is used only when there is no peer address of our own to
+    read, which in practice means the request came through a proxy that set it.
+    A client that can reach the app directly can set it too, and that is
+    acceptable for a courtesy throttle — it would not be for a security
+    decision.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client and request.client.host else "unknown"
+
+
 def same_origin_write(request: Request, settings: Settings) -> None:
     """Refuse a write that a browser says came from another origin.
 

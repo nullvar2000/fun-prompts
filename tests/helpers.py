@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import re
+from itertools import count
 
 from fastapi.testclient import TestClient
 
-from app.domain.models import Endpoint, ModelTarget, Prompt
+from app.domain.models import Build, Endpoint, ModelTarget, Prompt
+from app.domain.status import BuildStatus
 from app.storage.db import Database
+from app.storage.repos.builds import BuildRepo
 from app.storage.repos.endpoints import EndpointRepo
 from app.storage.repos.prompts import PromptRepo
 from app.web.auth import CSRF_FORM_FIELD
 
 CSRF_FIELD_RE = re.compile(r'name="csrf_token" value="([^"]*)"')
+_names = count()
 
 
 def make_endpoint(db: Database, name: str = "test-endpoint", models: tuple[str, ...] = ("model-a",)) -> tuple[Endpoint, list[ModelTarget]]:
@@ -24,6 +28,38 @@ def make_endpoint(db: Database, name: str = "test-endpoint", models: tuple[str, 
 
 def make_prompt(db: Database, title: str = "Test Prompt", body: str = "build a thing") -> Prompt:
     return PromptRepo(db).create(title=title, body=body)
+
+
+def sibling_builds(
+    db: Database,
+    *,
+    count: int = 2,
+    body: str = "a dice roller with a history list",
+    title: str | None = None,
+    status: BuildStatus = BuildStatus.PUBLISHED,
+) -> tuple[Prompt, list[Build]]:
+    """One prompt built ``count`` times by one endpoint's ``count`` models.
+
+    A comparison's worth of builds: the input is identical, only the pair that
+    answered differs.
+    """
+    name = f"sibling-{next(_names)}"
+    endpoint, models = make_endpoint(db, name=name, models=tuple(f"m{i}" for i in range(count)))
+    prompt = PromptRepo(db).create(title=title or name, body=body)
+    builds = BuildRepo(db)
+    created: list[Build] = []
+    for model in models:
+        build = builds.create(prompt_id=prompt.id, endpoint_id=endpoint.id, model_row_id=model.id)
+        if status is not BuildStatus.QUEUED:
+            builds.add_version(
+                build.id,
+                html="<!DOCTYPE html><html><head><title>app</title></head><body><b>MARK</b></body></html>",
+                raw_response="canned",
+            )
+            for step in (BuildStatus.GENERATING, BuildStatus.VALIDATING, status):
+                builds.set_status(build.id, step)
+        created.append(build)
+    return prompt, created
 
 
 # --- admin session -----------------------------------------------------------

@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from app import logsetup
 from app.build.extract import extract_html
 from app.build.guard import (
+    GuardVerdict,
     PromptRejected,
     builder_system_prompt,
     scan_prompt,
@@ -112,6 +113,21 @@ class BuildPipeline:
         self.guard_log = GuardLogRepo(db)
 
     # --- submission (synchronous: no network) --------------------------------
+    def _screen(self, text: str, *, prompt_id: int | None = None) -> GuardVerdict:
+        """Screen submitted text and log whatever it finds."""
+        verdict = scan_prompt(text, allow_markers=self.settings.allow_prompt_override_markers)
+        if not verdict.ok:
+            self.guard_log.log(
+                matched_rule=verdict.rule_id,
+                snippet=verdict.snippet,
+                action="block",
+                prompt_id=prompt_id,
+            )
+            raise PromptRejected(verdict)
+        for flag in verdict.flags:
+            self.guard_log.log(matched_rule=flag, snippet="", action="flag", prompt_id=prompt_id)
+        return verdict
+
     def submit(
         self,
         *,
@@ -123,21 +139,38 @@ class BuildPipeline:
         self._check_body(body)
         resolved = self._check_targets(targets)
 
-        verdict = scan_prompt(body, allow_markers=self.settings.allow_prompt_override_markers)
-        if not verdict.ok:
-            self.guard_log.log(
-                matched_rule=verdict.rule_id,
-                snippet=verdict.snippet,
-                action="block",
-            )
-            raise PromptRejected(verdict)
-        for flag in verdict.flags:
-            self.guard_log.log(matched_rule=flag, snippet="", action="flag")
-
+        self._screen(body)
         prompt = self.prompts.create(
             title=title or self._default_title(body), body=body, summary=summary
         )
         return self._schedule(prompt, resolved)
+
+    def fork(
+        self,
+        prompt_id: int,
+        *,
+        body: str,
+        targets: Sequence[Target],
+        title: str | None = None,
+    ) -> SubmitResult:
+        """Copy a stored prompt, edit the copy, and build the copy.
+
+        The edited text is screened like any new submission: forking is not a way
+        around the guard, and the lineage is kept so the gallery can show where a
+        prompt came from.
+        """
+        self._check_body(body)
+        original = self.prompts.get(prompt_id)
+        if original is None:
+            raise ValidationError(f"prompt {prompt_id} does not exist")
+        resolved = self._check_targets(targets)
+
+        self._screen(body, prompt_id=prompt_id)
+        forked = self.prompts.fork(prompt_id, title=title or None, body=body)
+        if forked is None:
+            raise ValidationError(f"prompt {prompt_id} could not be forked")
+        log.info("prompt %s forked as %s", original.slug, forked.slug)
+        return self._schedule(forked, resolved)
 
     def rerun(self, prompt_id: int, targets: Sequence[Target]) -> SubmitResult:
         """Queue the same stored prompt against other targets."""
@@ -172,17 +205,7 @@ class BuildPipeline:
             )
 
         source = self._refine_source(build, version_id)
-        verdict = scan_prompt(text, allow_markers=self.settings.allow_prompt_override_markers)
-        if not verdict.ok:
-            self.guard_log.log(
-                matched_rule=verdict.rule_id,
-                snippet=verdict.snippet,
-                action="block",
-                prompt_id=build.prompt_id,
-            )
-            raise PromptRejected(verdict)
-        for flag in verdict.flags:
-            self.guard_log.log(matched_rule=flag, snippet="", action="flag", prompt_id=build.prompt_id)
+        self._screen(text, prompt_id=build.prompt_id)
 
         job = self.jobs.enqueue(
             JobKind.REFINE,

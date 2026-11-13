@@ -22,6 +22,7 @@ from app.storage.repos.guard import GuardLogRepo
 from app.storage.repos.jobs import JobRepo
 from app.storage.repos.prompts import PromptRepo
 from app.worker.queue import BuildWorker
+from app.web.throttle import SubmissionThrottle
 
 
 @dataclass
@@ -37,6 +38,10 @@ class Container:
     pipeline: BuildPipeline
     worker: BuildWorker
     provider_for: Callable[[Endpoint], ProviderAdapter]
+    #: The web layer's courtesy throttle on public writes. Not wired into the
+    #: pipeline: the CLI and the worker are not visitors, and the admin panel has
+    #: its own session.
+    throttle: SubmissionThrottle
 
 
 def build_container(settings: Settings) -> Container:
@@ -59,6 +64,7 @@ def build_container(settings: Settings) -> Container:
 
     pipeline = BuildPipeline(db, settings, provider_for=provider_for)
     worker = BuildWorker(jobs=jobs, builds=builds, pipeline=pipeline, settings=settings)
+    throttle = SubmissionThrottle(settings.rate_limit_per_hour)
 
     return Container(
         settings=settings,
@@ -72,4 +78,5 @@ def build_container(settings: Settings) -> Container:
         pipeline=pipeline,
         worker=worker,
         provider_for=provider_for,
+        throttle=throttle,
     )

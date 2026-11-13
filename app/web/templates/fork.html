@@ -1,0 +1,41 @@
+{% extends "base.html" %} {% block title %}fork — {{ prompt.title }} — fun-prompts{% endblock %}
+{% block main %}
+<section class="build-head">
+  <p class="crumb">
+    <a href="/gallery">gallery</a> ·
+    <a href="/prompt/{{ prompt.slug }}">{{ prompt.title }}</a>
+  </p>
+  <h1>Fork {{ prompt.title }}</h1>
+  <p class="muted">
+    The copy keeps its lineage, so the prompt page still shows where it came
+    from. Editing means a new prompt: the builds below are the copy's, not the
+    original's.
+  </p>
+</section>
+
+{% if notice %}
+<p class="flash flash-error">
+  {{ notice }}{% if wait_seconds %} Try again in {{ wait_seconds }} seconds.{% endif %}
+</p>
+{% endif %}
+
+<form class="build-form" method="post" action="/prompt/{{ prompt.slug }}/fork">
+  <label for="title">title</label>
+  <input id="title" type="text" name="title" value="{{ title }}" maxlength="120" />
+
+  <label for="body">the prompt, edited</label>
+  <textarea id="body" name="body" rows="12" maxlength="{{ max_prompt_chars }}">{{ body }}</textarea>
+  <p class="muted small">
+    at most {{ max_prompt_chars }} characters · the edited text is screened like any
+    new prompt, because forking is not a way around the guard
+  </p>
+
+  <h2>build the copy on</h2>
+  {% include "partials/target_picker.html" %}
+
+  <div class="actions">
+    <button class="button" type="submit">fork and build</button>
+    <a class="button" href="/prompt/{{ prompt.slug }}">cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -56,6 +56,25 @@ block main %}
   </form>
   {% endif %}
 </section>
+
+{% if notice %}
+<p class="flash flash-error">{{ notice }}</p>
+{% endif %}
+
+<section class="panel run-fork">
+  <h2>run this prompt again</h2>
+  <p class="muted small">
+    The stored text is sent as it stands — same words, other endpoints. Editing
+    it means a fork, which keeps the lineage and gets screened as new input.
+  </p>
+  <form method="post" action="/prompt/{{ prompt.slug }}/run">
+    {% include "partials/target_picker.html" %}
+    <div class="actions actions-tight">
+      <button class="button" type="submit">run it</button>
+      <a class="button" href="/prompt/{{ prompt.slug }}/fork">fork and edit</a>
+    </div>
+  </form>
+</section>
 {% else %}
 <p class="empty">No published build from this prompt yet.</p>
 {% endif %} {% endblock %}

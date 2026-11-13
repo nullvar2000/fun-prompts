@@ -151,6 +151,14 @@ main { max-width: 1100px; margin: 0 auto; padding: 22px 20px 60px; }
 .compare-pick { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 14px 0; }
 .compare-pick input[type="checkbox"] { width: auto; margin-right: 5px; }
 
+/* Submission and fork forms: labels above fields, one column, room to write. */
+.build-form { display: grid; gap: 8px; max-width: 760px; margin-top: 8px; }
+.build-form label { color: var(--muted); font-size: 13px; }
+.build-form h2 { margin: 18px 0 4px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.build-form .compare-pick { margin: 6px 0 4px; }
+.run-fork { margin-top: 18px; }
+.run-fork form { margin-top: 6px; }
+
 /* --- admin panel (M5) ------------------------------------------------------
    The gallery is a showcase; the admin panel is a workbench, so it gets tables,
    forms and status colours instead of cards. */

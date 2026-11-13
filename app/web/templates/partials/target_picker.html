@@ -1,0 +1,15 @@
+{# One checkbox per enabled endpoint+model pair.
+
+The value carries both halves of the pair (``endpoint_id:model_row_id``) so a
+selection needs one field and no script; the route parses them back. #}
+<div class="compare-pick">
+  {% for option in options %}
+  <label>
+    <input type="checkbox" name="b" value="{{ option.value }}" {% if option.value in picked %}checked{% endif %} />
+    {{ option.label }}
+  </label>
+  {% endfor %}
+  {% if not options %}
+  <span class="muted small">No endpoints are enabled yet — an admin has to turn one on.</span>
+  {% endif %}
+</div>

@@ -23,7 +23,7 @@ from app.build.orchestrator import Target
 from app.container import Container
 from app.domain.errors import ValidationError
 from app.domain.status import BuildStatus, JobState
-from app.web.security import same_origin_write
+from app.web.security import client_key, same_origin_write
 
 router = APIRouter(prefix="/api", tags=["build"])
 
@@ -66,6 +66,18 @@ def _same_origin(request: Request) -> None:
     same_origin_write(request, request.app.state.settings)
 
 
+def _rate_limit(request: Request) -> None:
+    """A ceiling on what one address can spend in an hour.
+
+    ``FP_RATE_LIMIT_PER_HOUR`` is a courtesy throttle rather than a wall, and it
+    is in memory: it resets when the process does. Cancelling a job is never
+    throttled — that answer saves work.
+    """
+    wait = request.app.state.container.throttle.check(client_key(request))
+    if wait:
+        raise HTTPException(429, detail=f"too many submissions from this address; retry in {wait} seconds")
+
+
 @router.get("/targets")
 def list_targets(request: Request) -> list[dict]:
     container = _container(request)
@@ -81,7 +93,11 @@ def list_targets(request: Request) -> list[dict]:
     ]
 
 
-@router.post("/prompts", status_code=202, dependencies=[Depends(_same_origin)])
+@router.post(
+    "/prompts",
+    status_code=202,
+    dependencies=[Depends(_same_origin), Depends(_rate_limit)],
+)
 def submit_prompt(payload: SubmitBody, request: Request) -> dict:
     container = _container(request)
     targets = [Target(t.endpoint_id, t.model_row_id) for t in payload.targets]
@@ -103,7 +119,11 @@ def submit_prompt(payload: SubmitBody, request: Request) -> dict:
     }
 
 
-@router.post("/builds/{build_id}/refine", status_code=202, dependencies=[Depends(_same_origin)])
+@router.post(
+    "/builds/{build_id}/refine",
+    status_code=202,
+    dependencies=[Depends(_same_origin), Depends(_rate_limit)],
+)
 def refine_build(build_id: int, payload: RefineBody, request: Request) -> dict:
     """Queue a follow-up turn on a published build, on that build's model."""
     container = _container(request)

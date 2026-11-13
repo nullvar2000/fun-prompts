@@ -1,0 +1,51 @@
+{% extends "base.html" %} {% block title %}make something — fun-prompts{% endblock %}
+{% block main %}
+<section class="build-head">
+  <p class="crumb"><a href="/gallery">gallery</a></p>
+  <h1>Make an app</h1>
+  <p class="muted">
+    One prompt, up to {{ max_targets }} endpoint+model pairs at a time, and the
+    outputs land side by side so you can compare them.
+  </p>
+</section>
+
+{% if notice %}
+<p class="flash flash-error">
+  {{ notice }}{% if wait_seconds %} Try again in {{ wait_seconds }} seconds.{% endif %}
+</p>
+{% endif %}
+
+<form class="build-form" method="post" action="/new">
+  <label for="title">title (optional — the first line is used if you leave it blank)</label>
+  <input id="title" type="text" name="title" value="{{ title }}" maxlength="120" />
+
+  <label for="body">the prompt</label>
+  <textarea id="body" name="body" rows="10" maxlength="{{ max_prompt_chars }}"
+    placeholder="a dice roller with d4 to d20, a rolling history and a high score">{{ body }}</textarea>
+  <p class="muted small">
+    at most {{ max_prompt_chars }} characters · everything here is sent to the model as data,
+    and a generated app never gets to reach out to a network
+  </p>
+
+  <h2>build it on</h2>
+  {% include "partials/target_picker.html" %}
+
+  <div class="actions">
+    <button class="button" type="submit">build it</button>
+    <span class="muted">each pair gets its own build of the same prompt</span>
+  </div>
+</form>
+
+<section class="about">
+  <h2>What happens next</h2>
+  <ol>
+    <li>The prompt is screened; obvious attempts to hijack the builder are refused here.</li>
+    <li>Each pair generates one self-contained HTML document.</li>
+    <li>
+      The document is gated — single file, size ceiling, no external URLs — before
+      anything is published.
+    </li>
+    <li>What passed is served from the artifact origin and shown side by side.</li>
+  </ol>
+</section>
+{% endblock %}

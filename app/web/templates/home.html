@@ -9,7 +9,8 @@ block main %}
     {{ app_count }} published app{{ "" if app_count == 1 else "s" }} from
     {{ prompt_count }} prompt{{ "" if prompt_count == 1 else "s" }}, on
     {{ endpoint_count }} enabled endpoint{{ "" if endpoint_count == 1 else "s" }}.
-    <a href="/gallery">browse the whole gallery →</a>
+    <a href="/gallery">browse the whole gallery →</a> ·
+    <a href="/new">make one →</a>
   </p>
 </section>
 
@@ -19,7 +20,8 @@ block main %}
 </section>
 {% else %}
 <p class="empty">
-  Nothing published yet. Point the builder at an endpoint
+  Nothing published yet.
+  <a href="/new">Make one</a>, or point the builder at an endpoint
   (<code>python -m app.cli endpoints add …</code>) and submit a prompt to
   <code>POST /api/prompts</code>.
 </p>

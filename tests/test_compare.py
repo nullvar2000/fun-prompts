@@ -8,8 +8,6 @@ means the layout stops being a grid.
 
 from __future__ import annotations
 
-from itertools import count
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,10 +15,7 @@ from app.domain.status import BuildStatus
 from app.storage.db import Database
 from app.storage.repos.builds import BuildRepo
 from app.storage.repos.prompts import PromptRepo
-from tests.helpers import make_endpoint
-
-ARTIFACT = "<!DOCTYPE html><html><head><title>app</title></head><body><b>MARK</b></body></html>"
-_names = count()
+from tests.helpers import sibling_builds
 
 
 def siblings(
@@ -31,24 +26,9 @@ def siblings(
     title: str | None = None,
     status: BuildStatus = BuildStatus.PUBLISHED,
 ) -> tuple[int, list[int]]:
-    """One prompt, built ``count`` times by one endpoint's ``count`` models.
-
-    Returns ``(prompt_id, build_ids)`` — a comparison's worth of builds, because
-    the whole point is that the input was identical.
-    """
-    name = f"cmp-{next(_names)}"
-    endpoint, models = make_endpoint(db, name=name, models=tuple(f"m{i}" for i in range(count)))
-    prompt = PromptRepo(db).create(title=title or name, body=body)
-    builds = BuildRepo(db)
-    created: list[int] = []
-    for model in models:
-        build = builds.create(prompt_id=prompt.id, endpoint_id=endpoint.id, model_row_id=model.id)
-        if status is not BuildStatus.QUEUED:
-            builds.add_version(build.id, html=ARTIFACT, raw_response=ARTIFACT)
-            for step in (BuildStatus.GENERATING, BuildStatus.VALIDATING, status):
-                builds.set_status(build.id, step)
-        created.append(build.id)
-    return prompt.id, created
+    """``(prompt_id, build_ids)`` for one prompt built ``count`` different ways."""
+    prompt, builds = sibling_builds(db, count=count, body=body, title=title, status=status)
+    return prompt.id, [build.id for build in builds]
 
 
 def _url(build_ids: list[int], hidden: list[int] | None = None) -> str:
@@ -66,7 +46,9 @@ def test_the_prompt_page_offers_a_selection_of_its_builds(bare_client: TestClien
     assert 'method="get"' in page.text
     for build_id in ids:
         assert f'value="{build_id}"' in page.text
-    assert page.text.count("checked") == 3
+
+    form = page.text.split('action="/compare"')[1].split("</form>")[0]
+    assert form.count("checked") == 3
     assert "compare up to 4" in page.text
 
 

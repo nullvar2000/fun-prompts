@@ -21,12 +21,13 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 
 from app.build.guard import PromptRejected
+from app.build.orchestrator import Target
 from app.config import Settings
 from app.domain.errors import ValidationError
 from app.domain.models import Build, BuildVersion, Job, Prompt
 from app.domain.status import BuildStatus, JobKind, JobState
 from app.web.artifact_server import artifact_headers
-from app.web.security import same_origin_write
+from app.web.security import client_key, same_origin_write
 from app.web.templating import templates
 
 router = APIRouter(tags=["gallery"])
@@ -50,6 +51,7 @@ _REFINE_NOTICES = {
     "not-published": ("flash-error", "Only a published build can be revised."),
     "cancelled": ("flash-ok", "Revision cancelled."),
     "no-job": ("flash-error", "That revision is not running any more."),
+    "rate-limited": ("flash-error", "Too many revisions from this address for now."),
 }
 
 
@@ -354,6 +356,8 @@ def refine_build(request: Request, build_id: int, instruction: str = Form("")):
     build = _build_or_404(build_id, container)
     if build.hidden:
         raise HTTPException(404, "this build is hidden")
+    if _throttled(request):
+        return _back_to_build(build.id, "rate-limited")
 
     text = (instruction or "").strip()
     if not text:
@@ -505,15 +509,171 @@ def compare(
     )
 
 
-# --- prompt detail ------------------------------------------------------------
-@router.get("/prompt/{slug}")
-def prompt_page(request: Request, slug: str):
+# --- submit a prompt (public write, origin-checked) ---------------------------
+_SUBMIT_NOTICES = {
+    "no-targets": "Pick at least one endpoint and model.",
+    "too-many-targets": "That is more pairs than one prompt fans out to.",
+    "empty": "A prompt is needed.",
+    "too-long": "That prompt is longer than the limit.",
+    "bad-target": "One of those pairs is not something this gallery offers.",
+    "unavailable": "That endpoint or model is not available right now.",
+    "refused": "The submission guard refused that prompt. Nothing was queued.",
+    "gone": "That prompt is not here any more.",
+    "rate-limited": "Too many submissions from this address for now.",
+}
+
+
+def _target_options(request: Request) -> list[dict]:
+    """Every enabled endpoint+model pair, as checkbox values.
+
+    One field carries both halves of the pair (``endpoint_id:model_row_id``) so
+    a browser can send a selection without any script.
+    """
+    container = _container(request)
+    return [
+        {
+            "value": f"{endpoint.id}:{model.id}",
+            "label": f"{endpoint.name} · {model.label or model.model_id}",
+        }
+        for endpoint, model in container.endpoints.enabled_targets()
+    ]
+
+
+def _parse_targets(values: list[str]) -> tuple[list[Target], bool]:
+    """Checkbox values back into targets. ``False`` means one was not a pair."""
+    targets: list[Target] = []
+    understood = True
+    for raw in values:
+        head, sep, tail = raw.partition(":")
+        if not sep:
+            understood = False
+            continue
+        try:
+            targets.append(Target(int(head), int(tail)))
+        except ValueError:
+            understood = False
+    return targets, understood
+
+
+def _compare_url(build_ids: list[int]) -> str:
+    query = urlencode({"b": [str(build_id) for build_id in build_ids]}, doseq=True)
+    return f"/compare?{query}"
+
+
+def _throttled(request: Request) -> int | None:
+    """Seconds this address must wait, or None if it may submit.
+
+    Only the public write routes ask. The admin panel and the CLI are not
+    visitors, and cancelling a job is never throttled — that saves work.
+    """
+    return _container(request).throttle.check(client_key(request))
+
+
+def _new_context(
+    request: Request, *, notice: str, body: str, title: str, picked: set[str], wait: int | None = None
+) -> dict:
+    settings = _settings(request)
+    options = _target_options(request)
+    limit = settings.max_comparison_targets
+    return {
+        "artifact_origin": settings.artifact_base_url,
+        "notice": _SUBMIT_NOTICES.get(notice),
+        "body": body,
+        "title": title,
+        "options": options,
+        # Pre-ticked so the form is usable as it stands: the first pairs listed.
+        "picked": picked or {option["value"] for option in options[:limit]},
+        "max_targets": limit,
+        "max_prompt_chars": settings.max_prompt_chars,
+        "wait_seconds": wait,
+    }
+
+
+def _new_page(
+    request: Request,
+    *,
+    notice: str = "",
+    body: str = "",
+    title: str = "",
+    picked: set[str] | None = None,
+    wait: int | None = None,
+):
+    """Render (or re-render) the submission form.
+
+    A rejected submission comes back here with the text intact rather than
+    through a redirect: nothing was created, so there is nothing to protect from
+    a refresh, and a prompt is not something to lose to a query string.
+    """
+    return templates.TemplateResponse(
+        request=request,
+        name="new.html",
+        context=_new_context(
+            request, notice=notice, body=body, title=title, picked=picked or set(), wait=wait
+        ),
+    )
+
+
+@router.get("/new")
+def new_prompt_page(request: Request):
+    return _new_page(request)
+
+
+@router.post("/new")
+async def new_prompt(
+    request: Request,
+    body: str = Form(""),
+    title: str = Form(""),
+    b: list[str] = Form(default_factory=list),
+):
+    """Fan one prompt out to up to ``FP_MAX_COMPARISON_TARGETS`` pairs."""
+    _same_origin(request)
     settings = _settings(request)
     container = _container(request)
+    text = (body or "").strip()
+    pairs, understood = _parse_targets(b)
+
+    wait = _throttled(request)
+    if wait:
+        return _new_page(
+            request, notice="rate-limited", body=body, title=title, picked=set(b), wait=wait
+        )
+    if not understood:
+        return _new_page(request, notice="bad-target", body=body, title=title, picked=set(b))
+    if not pairs:
+        return _new_page(request, notice="no-targets", body=body, title=title, picked=set(b))
+    if len(pairs) > settings.max_comparison_targets:
+        return _new_page(request, notice="too-many-targets", body=body, title=title, picked=set(b))
+    if not text:
+        return _new_page(request, notice="empty", body=body, title=title, picked=set(b))
+    if len(text) > settings.max_prompt_chars:
+        return _new_page(request, notice="too-long", body=body, title=title, picked=set(b))
+
+    try:
+        result = container.pipeline.submit(
+            body=text, title=(title.strip() or None), targets=pairs
+        )
+    except PromptRejected:
+        return _new_page(request, notice="refused", body=body, title=title, picked=set(b))
+    except ValidationError:
+        return _new_page(request, notice="unavailable", body=body, title=title, picked=set(b))
+
+    return RedirectResponse(url=_compare_url([build.id for build in result.builds]), status_code=303)
+
+
+# --- prompt detail ------------------------------------------------------------
+def _prompt_or_404(slug: str, container) -> Prompt:  # noqa: ANN001
     prompt = container.prompts.get_by_slug(slug)
     if prompt is None or prompt.hidden:
         raise HTTPException(404, "no such prompt")
-    builds = [b for b in container.builds.for_prompt(prompt.id) if b.is_public]
+    return prompt
+
+
+@router.get("/prompt/{slug}")
+def prompt_page(request: Request, slug: str, notice: str = ""):
+    settings = _settings(request)
+    container = _container(request)
+    prompt = _prompt_or_404(slug, container)
+    builds = [build for build in container.builds.for_prompt(prompt.id) if build.is_public]
     parent = (
         container.prompts.get(prompt.parent_prompt_id) if prompt.parent_prompt_id else None
     )
@@ -523,6 +683,8 @@ def prompt_page(request: Request, slug: str):
         model = container.endpoints.get_model(build.model_row_id)
         if model is not None:
             model_ids[build.model_row_id] = model.model_id
+    options = _target_options(request)
+    limit = settings.max_comparison_targets
     return templates.TemplateResponse(
         request=request,
         name="prompt.html",
@@ -533,13 +695,135 @@ def prompt_page(request: Request, slug: str):
             "parent": parent,
             "endpoint_names": endpoint_names,
             "model_ids": model_ids,
-            # Pre-ticked so the form is useful without editing it: the first
-            # ``FP_MAX_COMPARISON_TARGETS`` builds, in the order the page lists
-            # them (oldest first, the same order the list below is in).
-            "max_targets": settings.max_comparison_targets,
-            "compare_defaults": {build.id for build in builds[: settings.max_comparison_targets]},
+            # Pre-ticked so the forms are useful without editing them: the first
+            # builds of this prompt, in the order the page lists them (oldest
+            # first), and the first pairs the gallery offers.
+            "max_targets": limit,
+            "compare_defaults": {build.id for build in builds[:limit]},
+            "options": options,
+            "picked": {option["value"] for option in options[:limit]},
+            "notice": _SUBMIT_NOTICES.get(notice),
         },
     )
+
+
+@router.post("/prompt/{slug}/run")
+async def rerun_prompt(request: Request, slug: str, b: list[str] = Form(default_factory=list)):
+    """Build this stored prompt again, against the chosen pairs.
+
+    The stored text is not screened a second time: it passed the guard when it
+    was submitted, and re-running is the whole point of keeping it. Editing the
+    text is a fork, which screens what was typed.
+    """
+    _same_origin(request)
+    settings = _settings(request)
+    container = _container(request)
+    prompt = _prompt_or_404(slug, container)
+
+    pairs, understood = _parse_targets(b)
+    bad = f"/prompt/{slug}?notice="
+    if _throttled(request):
+        return RedirectResponse(url=f"{bad}rate-limited", status_code=303)
+    if not understood:
+        return RedirectResponse(url=f"{bad}bad-target", status_code=303)
+    if not pairs:
+        return RedirectResponse(url=f"{bad}no-targets", status_code=303)
+    if len(pairs) > settings.max_comparison_targets:
+        return RedirectResponse(url=f"{bad}too-many-targets", status_code=303)
+
+    try:
+        result = container.pipeline.rerun(prompt.id, pairs)
+    except ValidationError:
+        return RedirectResponse(url=f"{bad}unavailable", status_code=303)
+    return RedirectResponse(url=_compare_url([build.id for build in result.builds]), status_code=303)
+
+
+def _fork_context(
+    request: Request,
+    prompt: Prompt,
+    *,
+    notice: str,
+    body: str,
+    title: str,
+    picked: set[str],
+    wait: int | None = None,
+) -> dict:
+    context = _new_context(
+        request, notice=notice, body=body, title=title, picked=picked, wait=wait
+    )
+    context["prompt"] = prompt
+    return context
+
+
+@router.get("/prompt/{slug}/fork")
+def fork_prompt_page(request: Request, slug: str):
+    """The prompt text, editable, with the pairs to build it on."""
+    container = _container(request)
+    prompt = _prompt_or_404(slug, container)
+    return templates.TemplateResponse(
+        request=request,
+        name="fork.html",
+        context=_fork_context(
+            request,
+            prompt,
+            notice="",
+            body=prompt.body,
+            title=prompt.title,
+            picked=set(),
+        ),
+    )
+
+
+@router.post("/prompt/{slug}/fork")
+async def fork_prompt(
+    request: Request,
+    slug: str,
+    body: str = Form(""),
+    title: str = Form(""),
+    b: list[str] = Form(default_factory=list),
+):
+    """Fork a prompt, edit the copy, and build the copy."""
+    _same_origin(request)
+    settings = _settings(request)
+    container = _container(request)
+    prompt = _prompt_or_404(slug, container)
+
+    text = (body or "").strip()
+    pairs, understood = _parse_targets(b)
+
+    def render(notice: str, wait: int | None = None):
+        """Re-render the fork form with the typed text intact."""
+        return templates.TemplateResponse(
+            request=request,
+            name="fork.html",
+            context=_fork_context(
+                request, prompt, notice=notice, body=body, title=title, picked=set(b), wait=wait
+            ),
+        )
+
+    wait = _throttled(request)
+    if wait:
+        return render("rate-limited", wait)
+
+    for condition, code in (
+        (not understood, "bad-target"),
+        (not pairs, "no-targets"),
+        (len(pairs) > settings.max_comparison_targets, "too-many-targets"),
+        (not text, "empty"),
+        (len(text) > settings.max_prompt_chars, "too-long"),
+    ):
+        if condition:
+            return render(code)
+
+    try:
+        result = container.pipeline.fork(
+            prompt.id, body=text, title=(title.strip() or None), targets=pairs
+        )
+    except PromptRejected:
+        return render("refused")
+    except ValidationError:
+        return render("unavailable")
+    return RedirectResponse(url=_compare_url([build.id for build in result.builds]), status_code=303)
 
 
 # --- downloads ----------------------------------------------------------------
