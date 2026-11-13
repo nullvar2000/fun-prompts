@@ -5,6 +5,7 @@ Lives in ``tests/`` on purpose: production code must never be able to reach it.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 
 from app.providers.base import (
@@ -25,6 +26,7 @@ class FakeProvider:
         models: Sequence[ModelInfo] | None = None,
         fail_with: ProviderError | None = None,
         model_returned: str = "fake-model-1",
+        delay_s: float = 0.0,
     ) -> None:
         self.responses = list(responses or ['<!DOCTYPE html><html><body>ok</body></html>'])
         self.models = list(
@@ -33,7 +35,11 @@ class FakeProvider:
         )
         self.fail_with = fail_with
         self.model_returned = model_returned
+        self.delay_s = delay_s
         self.calls: list[dict] = []
+        #: Concurrency bookkeeping, so the worker's cap can be asserted.
+        self.in_flight = 0
+        self.max_in_flight = 0
 
     async def complete(
         self,
@@ -51,9 +57,16 @@ class FakeProvider:
                 "temperature": temperature,
             }
         )
-        if self.fail_with is not None:
-            raise self.fail_with
-        text = self.responses[min(len(self.calls) - 1, len(self.responses) - 1)]
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            if self.delay_s:
+                await asyncio.sleep(self.delay_s)
+            if self.fail_with is not None:
+                raise self.fail_with
+            text = self.responses[min(len(self.calls) - 1, len(self.responses) - 1)]
+        finally:
+            self.in_flight -= 1
         completion_tokens = len(text) // 4
         return Completion(
             text=text,
@@ -68,6 +81,10 @@ class FakeProvider:
         )
 
     async def list_models(self) -> list[ModelInfo]:
+        # Real adapters raise for a failed /models call too, so discovery sees the
+        # same error type the completion path raises.
+        if self.fail_with is not None:
+            raise self.fail_with
         return list(self.models)
 
     async def probe(self) -> ProbeResult:
