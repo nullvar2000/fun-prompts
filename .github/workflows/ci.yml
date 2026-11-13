@@ -157,6 +157,98 @@ jobs:
         if: failure()
         run: docker logs fun-prompts
 
+  # The smoke job above proves the pages. This one proves the image can build:
+  # the scripted endpoint runs on the runner, the container reaches it because
+  # FP_ENDPOINT_ALLOWLIST says it may, and an app is published, served from the
+  # other origin and revised — all inside the shipped image, as uid 10001.
+  build-in-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      # Just what the scripted endpoint needs. It runs on the runner because
+      # tests/ is deliberately not part of the image.
+      - run: pip install -r requirements.txt
+      - name: Build image
+        run: docker build -f Containerfile -t fun-prompts:e2e .
+      - name: Run the scripted endpoint on the runner
+        run: |
+          python -m tests.fake_openai_server --port 8123 \
+            --completion-file seed/apps/dice-roller.html --fence --model fake-1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8123/v1/models >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8123/v1/models | grep -q 'fake-1'
+      - name: Start the container on the runner network
+        # Host networking, so the container's 127.0.0.1:8123 is the runner's and
+        # the runner's 127.0.0.1:8080/8081 are the container's. One network, two
+        # origins, no docker-bridge address book to get wrong.
+        run: |
+          docker run -d --name fp-e2e --network host \
+            -e FP_ARTIFACT_BASE_URL=http://127.0.0.1:8081 \
+            -e FP_ENDPOINT_ALLOWLIST=127.0.0.1:8123 \
+            -e FP_SEED_ON_START=0 \
+            -e ADMIN_PASSWORD=ci-only-password \
+            fun-prompts:e2e
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz | grep -q '"status": *"ok"'
+      - name: Point the image at the endpoint and submit through the form
+        run: |
+          docker exec fp-e2e python -m app.cli endpoints add lan http://127.0.0.1:8123/v1 --tag lan-demo
+          docker exec fp-e2e python -m app.cli endpoints discover lan
+          curl -fsS -o /dev/null -X POST http://127.0.0.1:8080/new \
+            --data-urlencode 'body=a dice roller with a rolling history' -d 'b=1:1'
+          for attempt in $(seq 1 60); do
+            body=$(curl -fsS http://127.0.0.1:8080/api/builds/1)
+            if printf '%s' "$body" | grep -q '"status": *"published"'; then break; fi
+            sleep 1
+          done
+          printf '%s\n' "$body" | grep -q '"status": *"published"'
+          # The endpoint's own tag travelled with the build, and the answer came
+          # back inside a markdown fence: the page says what the pipeline had to
+          # do to get a document out of it.
+          printf '%s\n' "$body" | grep -q '"lan-demo"'
+          curl -fsS http://127.0.0.1:8080/build/1 | grep -q '<dd>fence</dd>'
+      - name: Check the bytes on both origins
+        run: |
+          artifact=$(curl -fsS http://127.0.0.1:8081/artifact/1)
+          printf '%s' "$artifact" | grep -q '<!DOCTYPE html>'
+          # The fence is gone: what is served is the document the model sent,
+          # trimmed, and nothing else.
+          ! printf '%s' "$artifact" | grep -q '```'
+          # The gallery's download route hands over the same bytes as a file.
+          curl -fsS http://127.0.0.1:8080/download/1 | cmp -s - <(printf '%s' "$artifact")
+          curl -fsS http://127.0.0.1:8080/download/1 -D - -o /dev/null \
+            | grep -qi 'content-disposition: attachment'
+          # And the artifact origin is still artifact-only.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/api/builds/1)" = 404
+          ! curl -fsSI http://127.0.0.1:8081/artifact/1 | grep -qi 'set-cookie'
+      - name: Revise it, on the model that made it
+        run: |
+          curl -fsS -o /dev/null -X POST http://127.0.0.1:8080/build/1/refine \
+            --data-urlencode 'instruction=make the roll button bigger'
+          for attempt in $(seq 1 60); do
+            body=$(curl -fsS http://127.0.0.1:8080/api/builds/1)
+            if printf '%s' "$body" | grep -q '"latest_version": *2'; then break; fi
+            sleep 1
+          done
+          printf '%s\n' "$body" | grep -q '"latest_version": *2'
+          printf '%s\n' "$body" | grep -q '"refined": *true'
+          # Still published: a revise turn cannot take the running version offline.
+          printf '%s\n' "$body" | grep -q '"status": *"published"'
+          v2=$(printf '%s' "$body" | python -c 'import json,sys; print(json.load(sys.stdin)["version"]["id"])')
+          curl -fsS "http://127.0.0.1:8081/artifact/$v2" | grep -q '<!DOCTYPE html>'
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs fp-e2e
+
   build-push:
     needs: [test, smoke]
     if: github.event_name == 'push'
