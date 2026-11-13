@@ -21,10 +21,26 @@ from dataclasses import dataclass
 
 TASK_OPEN = "<task>"
 TASK_CLOSE = "</task>"
+INSTRUCTION_OPEN = "<instruction>"
+INSTRUCTION_CLOSE = "</instruction>"
+ARTIFACT_OPEN = "<current_html>"
+ARTIFACT_CLOSE = "</current_html>"
 
 # Sentinels that must not survive inside user text: if one did, the user could
-# close the data block early and start writing instructions.
-_UNTRUSTED_SENTINELS = (TASK_OPEN, TASK_CLOSE, "<task ", "<instruction")
+# close the data block early and start writing instructions. The prefix forms
+# (``<task ``, ``<instruction``) are listed too so an attribute-bearing variant
+# cannot slip through either.
+_UNTRUSTED_SENTINELS = (
+    TASK_OPEN,
+    TASK_CLOSE,
+    "<task ",
+    INSTRUCTION_OPEN,
+    INSTRUCTION_CLOSE,
+    "<instruction",
+    ARTIFACT_OPEN,
+    ARTIFACT_CLOSE,
+    "<current_html",
+)
 
 
 @dataclass(frozen=True)

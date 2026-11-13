@@ -106,6 +106,11 @@ class Settings:
     max_artifact_kb: int = 200
     max_output_tokens: int = 8000
     max_comparison_targets: int = 4
+    #: How much of the previous version is sent back as context when refining.
+    #: An artifact may be 200 KB, which no model is going to hold alongside its
+    #: own answer, so the context is clipped from the end and the clipping is
+    #: recorded on the version. Bigger means more input tokens per follow-up turn.
+    refine_context_chars: int = 24000
 
     # --- auth / secrets -----------------------------------------------------
     admin_password: str | None = None
@@ -176,6 +181,7 @@ class Settings:
             "FP_MAX_ARTIFACT_KB": self.max_artifact_kb,
             "FP_MAX_OUTPUT_TOKENS": self.max_output_tokens,
             "FP_MAX_COMPARISON_TARGETS": self.max_comparison_targets,
+            "FP_REFINE_CONTEXT_CHARS": self.refine_context_chars,
             "FP_SESSION_TTL_HOURS": self.session_ttl_hours,
             "FP_KEY_FILE": str(self.key_file),
             "FP_ENDPOINT_ALLOWLIST": self.endpoint_allowlist or "(any non-blocked host)",
@@ -236,6 +242,7 @@ def load_settings() -> Settings:
         max_artifact_kb=_int("FP_MAX_ARTIFACT_KB", 200, minimum=1),
         max_output_tokens=_int("FP_MAX_OUTPUT_TOKENS", 8000, minimum=64),
         max_comparison_targets=_int("FP_MAX_COMPARISON_TARGETS", 4, minimum=1, maximum=8),
+        refine_context_chars=_int("FP_REFINE_CONTEXT_CHARS", 24000, minimum=1000, maximum=200000),
         admin_password=_get("ADMIN_PASSWORD") or _get("FP_ADMIN_PASSWORD"),
         session_secret=_get("FP_SESSION_SECRET"),
         session_ttl_hours=_int("FP_SESSION_TTL_HOURS", 24, minimum=1, maximum=24 * 30),

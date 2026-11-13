@@ -4,9 +4,11 @@ Handlers are plain ``def`` (not ``async def``) on purpose: they touch SQLite,
 and FastAPI runs synchronous handlers on a threadpool instead of blocking the
 event loop the worker needs.
 
-Endpoints and models are *read* here but not written: creating them belongs to
-the authenticated admin panel (M5), and a write API without that authentication
-in place would be a hole that is easy to forget later.
+Endpoints and models are *read* here, never written: creating them belongs to the
+authenticated admin panel, and an unauthenticated write surface for endpoints
+would let any page that reaches this origin redirect where the builder calls.
+What this API does offer is generation — submit a prompt, refine a published
+build, cancel a job — because that is what a client on the LAN is here for.
 """
 
 from __future__ import annotations
@@ -33,6 +35,14 @@ class SubmitBody(BaseModel):
     title: str | None = None
     summary: str = ""
     targets: list[TargetBody] = Field(min_length=1)
+
+
+class RefineBody(BaseModel):
+    """A follow-up turn. The model is not part of it on purpose: a refine keeps
+    the model of the build it came from, so the version chain stays comparable."""
+
+    instruction: str = Field(min_length=1)
+    version_id: int | None = None
 
 
 def _container(request: Request) -> Container:
@@ -79,6 +89,30 @@ def submit_prompt(payload: SubmitBody, request: Request) -> dict:
     }
 
 
+@router.post("/builds/{build_id}/refine", status_code=202)
+def refine_build(build_id: int, payload: RefineBody, request: Request) -> dict:
+    """Queue a follow-up turn on a published build, on that build's model."""
+    container = _container(request)
+    try:
+        result = container.pipeline.refine(
+            build_id, payload.instruction, version_id=payload.version_id
+        )
+    except PromptRejected as exc:
+        raise HTTPException(422, detail="instruction was refused by the submission guard") from exc
+    except ValidationError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+    return {
+        "build": {
+            "id": result.build.id,
+            "status": str(result.build.status),
+            "latest_version": result.build.latest_version,
+        },
+        "from_version_id": result.from_version_id,
+        "job": {"id": result.job.id, "kind": str(result.job.kind), "state": str(result.job.state)},
+    }
+
+
 @router.get("/builds/{build_id}")
 def get_build(build_id: int, request: Request) -> dict:
     container = _container(request)
@@ -105,6 +139,16 @@ def get_build(build_id: int, request: Request) -> dict:
             "latency_ms": version.latency_ms,
             "usage": version.usage,
         },
+        "versions": [
+            {
+                "id": version.id,
+                "version_no": version.version_no,
+                "parent_version_id": version.parent_version_id,
+                "refined": version.parent_version_id is not None,
+                "context_clipped": bool(version.validation.get("refine_clipped")),
+            }
+            for version in container.builds.versions(build_id)
+        ],
         "failures": [
             {"stage": f["stage"], "error": f["error_text"], "violations": f["violations"]}
             for f in container.builds.failures(build_id)

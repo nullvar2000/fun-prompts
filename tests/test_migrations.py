@@ -31,19 +31,19 @@ def test_initial_migration_creates_every_table(db: Database) -> None:
 
 
 def test_migrations_are_recorded_and_idempotent(db: Database) -> None:
-    assert db.version() == 2
+    assert db.version() == 3
     names = {row["name"] for row in db.query("SELECT name FROM schema_version")}
-    assert names == {"init", "build_failures"}
+    assert names == {"init", "build_failures", "refine"}
     # A second boot must not re-run anything.
     assert db.migrate() == []
-    assert db.version() == 2
+    assert db.version() == 3
 
 
 def test_a_fresh_database_applies_every_migration_in_order(tmp_path) -> None:
     from app.storage.db import Database as Fresh
 
     fresh = Fresh(tmp_path / "fresh.db")
-    assert fresh.migrate() == [1, 2]
+    assert fresh.migrate() == [1, 2, 3]
     assert fresh.migrate() == []
 
 

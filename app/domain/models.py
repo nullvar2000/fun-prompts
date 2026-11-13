@@ -196,6 +196,10 @@ class Job:
     attempts: int = 0
     run_after: str = ""
     error: str = ""
+    #: Follow-up text for a ``refine`` job. Stored here because the queue is the
+    #: only durable place for it: a job claimed just before a crash has to be
+    #: re-runnable after startup.
+    instruction: str = ""
     created_at: str = ""
     updated_at: str = ""
 
@@ -211,6 +215,7 @@ class Job:
             attempts=row["attempts"],
             run_after=row["run_after"],
             error=row["error"],
+            instruction=row["instruction"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

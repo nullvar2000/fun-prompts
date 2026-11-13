@@ -12,7 +12,7 @@ from app.storage.db import Database, utc_now
 
 _JOB_COLUMNS = """
     id, kind, build_id, version_id, endpoint_id, state, attempts,
-    run_after, error, created_at, updated_at
+    run_after, error, instruction, created_at, updated_at
 """
 
 
@@ -28,13 +28,14 @@ class JobRepo:
         version_id: int | None = None,
         endpoint_id: int | None = None,
         run_after: str | None = None,
+        instruction: str = "",
     ) -> Job:
         now = utc_now()
         rowid = self.db.execute(
             """
             INSERT INTO jobs (kind, build_id, version_id, endpoint_id, state,
-                              attempts, run_after, error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 0, ?, '', ?, ?)
+                              attempts, run_after, error, instruction, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?, '', ?, ?, ?)
             """,
             (
                 str(kind),
@@ -43,6 +44,7 @@ class JobRepo:
                 endpoint_id,
                 str(JobState.QUEUED),
                 run_after or now,
+                instruction,
                 now,
                 now,
             ),
