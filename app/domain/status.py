@@ -75,7 +75,14 @@ _BUILD_TRANSITIONS: dict[BuildStatus, frozenset[BuildStatus]] = {
         }
     ),
     BuildStatus.VALIDATING: frozenset(
-        {BuildStatus.PUBLISHED, BuildStatus.REJECTED, BuildStatus.FAILED, BuildStatus.CANCELLED}
+        {
+            BuildStatus.PUBLISHED,
+            BuildStatus.REJECTED,
+            BuildStatus.FAILED,
+            BuildStatus.CANCELLED,
+            # A failed validation sends the build back for the repair retry.
+            BuildStatus.GENERATING,
+        }
     ),
     BuildStatus.REJECTED: frozenset({BuildStatus.QUEUED}),
     BuildStatus.FAILED: frozenset({BuildStatus.QUEUED}),

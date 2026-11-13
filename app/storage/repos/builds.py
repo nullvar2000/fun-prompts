@@ -159,6 +159,47 @@ class BuildRepo:
         row = self.db.query_one("SELECT * FROM build_versions WHERE id = ?", (version_id,))
         return BuildVersion.from_row(row) if row else None
 
+    # --- failure history -----------------------------------------------------
+    def record_failure(
+        self,
+        build_id: int,
+        *,
+        job_id: int | None,
+        stage: str,
+        error_text: str = "",
+        violations: tuple[str, ...] = (),
+        raw_response: str = "",
+    ) -> int:
+        """Keep the rejected attempt. Publishing is gated, debugging is not."""
+        rowid = self.db.execute(
+            """
+            INSERT INTO build_failures (build_id, job_id, stage, error_text,
+                                        violations_json, raw_response, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                build_id,
+                job_id,
+                stage,
+                error_text[:4000],
+                json.dumps(list(violations)),
+                raw_response[:20_000],
+                utc_now(),
+            ),
+        )
+        return int(rowid)
+
+    def failures(self, build_id: int) -> list[dict]:
+        rows = self.db.query(
+            "SELECT * FROM build_failures WHERE build_id = ? ORDER BY id DESC", (build_id,)
+        )
+        out = []
+        for row in rows:
+            record = dict(row)
+            record["violations"] = json.loads(record.pop("violations_json") or "[]")
+            out.append(record)
+        return out
+
     # --- gallery reads -------------------------------------------------------
     def list(
         self,

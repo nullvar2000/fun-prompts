@@ -152,3 +152,55 @@ def test_for_prompt_lists_every_target_of_a_prompt(db: Database, builds: BuildRe
     ids = {b.id for b in builds.for_prompt(prompt.id)}
     assert ids == {first.id, second.id}
     assert first.prompt_id == second.prompt_id
+
+
+# --- failure retention --------------------------------------------------------
+def _unpublished_build(db: Database, builds: BuildRepo, title: str = "Rejected") -> int:
+    endpoint, models = make_endpoint(db, name=f"fail-{title}")
+    prompt = make_prompt(db, title=title, body=f"prompt for {title}")
+    build = builds.create(prompt_id=prompt.id, endpoint_id=endpoint.id, model_row_id=models[0].id)
+    builds.set_status(build.id, BuildStatus.GENERATING)
+    builds.set_status(build.id, BuildStatus.VALIDATING)
+    return build.id
+
+
+def test_failures_keep_the_rejected_response_for_inspection(db: Database, builds: BuildRepo) -> None:
+    build_id = _unpublished_build(db, builds)
+    builds.record_failure(
+        build_id,
+        job_id=None,
+        stage="validate",
+        error_text="artifact rejected: external-url",
+        violations=("external-url", "missing-head"),
+        raw_response="<!DOCTYPE html><html><body><script src='https://x.example/a.js'>",
+    )
+
+    rows = builds.failures(build_id)
+    assert len(rows) == 1
+    assert rows[0]["stage"] == "validate"
+    assert rows[0]["violations"] == ["external-url", "missing-head"]
+    assert "cdn" not in rows[0]["error_text"]
+    assert "x.example" in rows[0]["raw_response"]
+    # A rejected attempt never becomes a version.
+    assert builds.latest_version(build_id) is None
+
+
+def test_failures_are_newest_first_and_truncated(db: Database, builds: BuildRepo) -> None:
+    build_id = _unpublished_build(db, builds, title="Truncated")
+    builds.record_failure(build_id, job_id=None, stage="provider", error_text="first")
+    builds.record_failure(
+        build_id, job_id=None, stage="interrupted", error_text="x" * 9000, raw_response="y" * 50_000
+    )
+
+    rows = builds.failures(build_id)
+    assert [r["stage"] for r in rows] == ["interrupted", "provider"]
+    assert len(rows[0]["error_text"]) <= 4000
+    assert len(rows[0]["raw_response"]) <= 20_000
+
+
+def test_a_failure_stage_outside_the_vocabulary_is_refused(db: Database, builds: BuildRepo) -> None:
+    from sqlite3 import IntegrityError
+
+    build_id = _unpublished_build(db, builds, title="BadStage")
+    with pytest.raises(IntegrityError):
+        builds.record_failure(build_id, job_id=None, stage="probably-fine")
