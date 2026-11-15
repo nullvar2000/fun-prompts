@@ -98,6 +98,45 @@ def test_a_malformed_origin_is_refused_not_crashed(bare_settings: Settings) -> N
     assert _refused(lambda: same_origin_write(_request("POST", {"origin": "http://[::1"}), bare_settings))
 
 
+# --- the opaque-origin case ---------------------------------------------------
+# A browser gives a document an opaque origin for a sandboxed frame, for privacy
+# hardening (privacy.resistFingerprinting) and under some header-rewriting
+# extensions. Such a document POSTs with ``Origin: null``, which says it has no
+# origin of its own — not that it came from somewhere else.
+
+def test_an_opaque_origin_that_stayed_put_is_allowed(bare_settings: Settings) -> None:
+    same_origin_write(
+        _request("POST", {"origin": "null", "sec-fetch-site": "same-origin"}), bare_settings
+    )
+
+
+@pytest.mark.parametrize("fetch_site", ["cross-site", "same-site", "none", ""])
+def test_an_opaque_origin_that_did_not_stay_put_is_refused(
+    bare_settings: Settings, fetch_site: str
+) -> None:
+    """A generated app framed from the artifact origin reports same-site/cross-site."""
+    assert _refused(
+        lambda: same_origin_write(
+            _request("POST", {"origin": "null", "sec-fetch-site": fetch_site}), bare_settings
+        )
+    )
+
+
+def test_fetch_site_alone_is_not_a_way_in(bare_settings: Settings) -> None:
+    """Without an Origin/Referer there is nothing to vouch for, as before."""
+    same_origin_write(_request("POST", {"sec-fetch-site": "same-origin"}), bare_settings)
+    assert _refused(lambda: same_origin_write(_request("POST", {"origin": "null"}), bare_settings))
+
+
+def test_a_named_origin_still_has_to_match_whatever_fetch_site_says(bare_settings: Settings) -> None:
+    assert _refused(
+        lambda: same_origin_write(
+            _request("POST", {"origin": "http://elsewhere.example", "sec-fetch-site": "same-origin"}),
+            bare_settings,
+        )
+    )
+
+
 def test_the_configured_gallery_origin_counts_even_behind_a_proxy(bare_settings: Settings) -> None:
     """FP_GALLERY_BASE_URL names where users browse; the Host header may say otherwise."""
     settings = replace(bare_settings, gallery_base_url="http://public.example")
@@ -150,3 +189,22 @@ def test_the_check_does_not_break_the_pages_it_guards(bare_client: TestClient) -
 def test_a_cross_origin_read_is_fine(bare_client: TestClient) -> None:
     page = bare_client.get("/", headers={"Origin": "http://elsewhere.example"})
     assert page.status_code == 200
+
+
+def test_a_hardened_browser_reaches_the_route_it_guarded(bare_client: TestClient) -> None:
+    """Origin: null with Sec-Fetch-Site: same-origin is a locked-down browser."""
+    hardened = bare_client.post(
+        "/build/1/refine",
+        data={"instruction": "x"},
+        headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"},
+        follow_redirects=False,
+    )
+    assert hardened.status_code == 404  # no such build: the route ran
+
+    across = bare_client.post(
+        "/build/1/refine",
+        data={"instruction": "x"},
+        headers={"Origin": "null", "Sec-Fetch-Site": "cross-site"},
+        follow_redirects=False,
+    )
+    assert across.status_code == 403

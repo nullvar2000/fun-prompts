@@ -253,6 +253,12 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
   check, a test client — so it is allowed; a present one has to match the host
   being browsed or `FP_GALLERY_BASE_URL`. The artifact origin is never in that
   set: a generated app cannot submit prompts, revise builds or cancel jobs.
+  `Origin: null` (an opaque-origin document: privacy hardening, a header-rewriting
+  extension, a sandboxed page) is decided by `Sec-Fetch-Site` instead — another
+  forbidden header page script cannot forge — and only the literal `same-origin`
+  counts, so a cross-site page and a framed artifact still fail. Behind a
+  TLS-terminating proxy, `FP_FORWARDED_ALLOW_IPS` names the proxy whose
+  `X-Forwarded-Proto`/`Host` the derived origin may trust.
 - **The gallery has a spend ceiling.** `FP_RATE_LIMIT_PER_HOUR` counts public
   writes per address in memory and says how long to wait. Cancelling a job is
   never counted, because that answer saves work.

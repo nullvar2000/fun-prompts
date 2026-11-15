@@ -6,6 +6,11 @@
     {# Generated apps live on a different origin; scripts read it from here so the
        CSP can keep script-src 'self' with no inline scripts. #}
     <meta name="artifact-origin" content="{{ artifact_origin }}" />
+    {# htmx otherwise injects its loading-indicator CSS as an inline <style> in
+       <head>, which our style-src 'self' blocks. Nothing here uses the
+       .htmx-indicator element, so the injection buys nothing: switch it off and
+       the CSP stays strict instead of gaining a nonce. #}
+    <meta name="htmx-config" content='{"includeIndicatorStyles": false}' />
     <title>{% block title %}fun-prompts{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css" />
     <script src="/static/htmx.min.js" defer></script>

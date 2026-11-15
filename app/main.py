@@ -136,6 +136,14 @@ def main() -> None:
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level.lower(),
+        # Behind a TLS-terminating gateway the pod only ever sees plain http from
+        # the mesh, so request.base_url would name that socket rather than the
+        # https origin in the browser's Origin header — and write_origins would
+        # have nothing to match against except FP_GALLERY_BASE_URL. Trusting
+        # X-Forwarded-* from the proxy only (FP_FORWARDED_ALLOW_IPS) makes the
+        # derived origin the real one.
+        proxy_headers=True,
+        forwarded_allow_ips=settings.forwarded_allow_ips,
     )
 
 

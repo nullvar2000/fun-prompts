@@ -188,6 +188,10 @@ async def start_artifact_server(
         log_level=settings.log_level.lower(),
         access_log=False,
         lifespan="on",
+        # Same proxy trust as the gallery origin, so both apps agree on the
+        # scheme and host users were actually served.
+        proxy_headers=True,
+        forwarded_allow_ips=settings.forwarded_allow_ips,
     )
     server = uvicorn.Server(config)
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]

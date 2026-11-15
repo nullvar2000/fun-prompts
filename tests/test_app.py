@@ -24,6 +24,8 @@ def test_home_page_renders_with_vendored_htmx(client) -> None:
     assert 'src="/static/htmx.min.js"' in html
     assert "unpkg.com" not in html and "cdn." not in html
     assert '<meta name="artifact-origin" content="http://localhost:8081"' in html
+    # htmx must not inject an inline <style>: style-src is 'self' and stays that way.
+    assert '"includeIndicatorStyles": false' in html
 
 
 def test_static_assets_are_served(client) -> None:

@@ -19,6 +19,9 @@ from app.config import Settings
 #: Methods that change something, and so have an origin to answer for.
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+#: The one ``Sec-Fetch-Site`` value that settles a write whose ``Origin`` says nothing.
+SAME_ORIGIN_FETCH_SITE = "same-origin"
+
 
 def artifact_origin(settings: Settings) -> str:
     """``http://host:port`` form used inside CSP ``frame-src``."""
@@ -122,6 +125,15 @@ def same_origin_write(request: Request, settings: Settings) -> None:
     it is curl, a health check or a test client — so it is allowed. The point is
     to stop a page on someone else's origin from pushing the builder around, not
     to authenticate callers.
+
+    ``Origin: null`` is the awkward case: an *opaque-origin* document sends it,
+    which a browser does for a sandboxed frame, for privacy hardening such as
+    ``privacy.resistFingerprinting``, and for some header-rewriting extensions.
+    That says the document has no origin of its own, not that it came from
+    somewhere else, so ``Sec-Fetch-Site`` decides — a forbidden header the UA
+    sets and page script cannot forge. Only the literal ``same-origin`` counts:
+    a cross-site page, and a generated app framed from the artifact origin
+    (same site, different origin), both report ``cross-site``/``same-site``.
     """
     if request.method not in UNSAFE_METHODS:
         return
@@ -129,7 +141,11 @@ def same_origin_write(request: Request, settings: Settings) -> None:
     if not header:
         return
     source = origin_of(header)
-    if source is None or source not in write_origins(request, settings):
+    if source is None:
+        if request.headers.get("sec-fetch-site", "").lower() == SAME_ORIGIN_FETCH_SITE:
+            return
+        raise HTTPException(403, "this form came from another origin")
+    if source not in write_origins(request, settings):
         raise HTTPException(403, "this form came from another origin")
 
 

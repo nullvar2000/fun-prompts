@@ -26,6 +26,17 @@ def test_ship_defaults() -> None:
     assert settings.seed_on_start is True
 
 
+def test_forwarded_allow_ips_is_conservative_until_a_proxy_is_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a named proxy may tell the app which origin users reached it at."""
+    assert load_settings().forwarded_allow_ips == "127.0.0.1"
+    monkeypatch.setenv("FP_FORWARDED_ALLOW_IPS", "10.244.0.0/16")
+    settings = load_settings()
+    assert settings.forwarded_allow_ips == "10.244.0.0/16"
+    assert settings.redacted_dump()["FP_FORWARDED_ALLOW_IPS"] == "10.244.0.0/16"
+
+
 def test_env_overrides_every_layer_of_the_stack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
