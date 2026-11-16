@@ -311,7 +311,8 @@ def test_an_unshippable_document_reaches_no_browser(
 
             # The comparison says what happened instead of framing an empty column.
             comparison = api.get(f"/compare?b={build_id}").text
-            assert "<iframe" not in comparison and "no artifact yet" in comparison
+            assert "<iframe" not in comparison and "did not pass the gate" in comparison
+            assert "hx-get" not in comparison  # terminal: the comparing page stops asking
 
             # And the artifact origin has no bytes for it to hand out.
             assert httpx.get(f"{settings.artifact_base_url}/artifact/1").status_code == 404

@@ -82,7 +82,8 @@ the comparison of the builds it just queued. The API exists for scripts.
 | `/gallery` | search, AND-combined tag chips, filter by endpoint+model, sort, paging |
 | `/build/{id}` | the app in a sandboxed frame, plus endpoint, model, latency, tokens, extraction notes, version history and the revise box |
 | `/build/{id}/status` | the frame-and-status fragment the build page re-fetches while a build or revision is moving |
-| `/compare?b=…&hide=…` | one prompt, up to four outputs side by side; `hide` folds columns away |
+| `/compare?b=…&hide=…` | one prompt, up to four outputs side by side; `hide` folds columns away; a column whose build is still moving refreshes itself and says so in rotating status copy |
+| `/compare/column/{id}?b=…` | one comparison column as a fragment — what htmx re-fetches until that build settles |
 | `/prompt/{slug}` | the prompt, every public build from it, the picker for comparing them, re-run and fork |
 | `/prompt/{slug}/fork` | the prompt text, editable, built as a child prompt |
 | `/download/{version_id}` | the stored file as an attachment |

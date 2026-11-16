@@ -15,41 +15,7 @@
 
 <section class="compare {{ 'compare-single' if single else 'compare-grid' }}">
   {% for item in outputs %}
-  <div class="compare-col {{ 'is-hidden' if not item.visible }}">
-    <header class="compare-head">
-      <span>
-        <strong>{{ item.endpoint.name if item.endpoint else "endpoint" }}</strong>
-        · <code>{{ item.model.model_id if item.model else "model" }}</code>
-        · v{{ item.build.latest_version }}
-      </span>
-      <nav>
-        <a href="{{ selection.toggle_url(item.build.id) }}">
-          {{ "show" if not item.visible else "hide" }}</a>
-        <a href="/build/{{ item.build.id }}">build page</a>
-        {% if item.version %}<a href="/download/{{ item.version.id }}">source</a>{% endif %}
-        <a href="{{ selection.drop_url(item.build.id) }}">remove</a>
-      </nav>
-    </header>
-    {% if item.visible and item.artifact_url %}
-    <iframe
-      class="frame"
-      title="{{ prompt.title }} — {{ (item.model.model_id if item.model else 'a model') }}"
-      src="{{ item.artifact_url }}"
-      {# Same rules as the build page: no allow-same-origin, so each frame has an
-         opaque origin and can touch its own DOM and nothing else — not even the
-         other frames beside it. #}
-      sandbox="allow-scripts"
-      referrerpolicy="no-referrer"
-    ></iframe>
-    {% elif item.visible %}
-    <p class="status status-{{ item.build.status }}">
-      {% if item.build.status == 'published' %}nothing published to show
-      {% else %}{{ item.build.status }} — no artifact yet{% endif %}
-    </p>
-    {% else %}
-    <p class="compare-foot muted">Hidden. Its toggles are above.</p>
-    {% endif %}
-  </div>
+  {% include "partials/compare_column.html" %}
   {% endfor %}
 </section>
 

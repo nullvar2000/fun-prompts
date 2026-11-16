@@ -1,0 +1,51 @@
+{# One column of a comparison: the framed artifact, or the status standing in
+   front of it.
+
+Used inline on the compare page and re-fetched whole by htmx while the build is
+still moving. The polling attributes are emitted only for a shown column whose
+build has not settled; the swap replaces the entire column — header, version
+number and links included — so a settled column comes back without them and
+the asking stops by itself. #}
+<div class="compare-col {{ 'is-hidden' if not item.visible }}"
+  {% if item.visible and not item.terminal %}
+  hx-get="{{ selection.column_url(item.build.id) }}"
+  hx-trigger="every 1.5s"
+  hx-swap="outerHTML"
+  {% endif %}
+>
+  <header class="compare-head">
+    <span>
+      <strong>{{ item.endpoint.name if item.endpoint else "endpoint" }}</strong>
+      · <code>{{ item.model.model_id if item.model else "model" }}</code>
+      · v{{ item.build.latest_version }}
+    </span>
+    <nav>
+      <a href="{{ selection.toggle_url(item.build.id) }}">
+        {{ "show" if not item.visible else "hide" }}</a>
+      <a href="/build/{{ item.build.id }}">build page</a>
+      {% if item.version %}<a href="/download/{{ item.version.id }}">source</a>{% endif %}
+      <a href="{{ selection.drop_url(item.build.id) }}">remove</a>
+    </nav>
+  </header>
+  {% if item.visible and item.artifact_url %}
+  <iframe
+    class="frame"
+    title="{{ prompt.title }} — {{ (item.model.model_id if item.model else 'a model') }}"
+    src="{{ item.artifact_url }}"
+    {# Same rules as the build page: no allow-same-origin, so each frame has an
+       opaque origin and can touch its own DOM and nothing else — not even the
+       other frames beside it. #}
+    sandbox="allow-scripts"
+    referrerpolicy="no-referrer"
+  ></iframe>
+  {% elif item.visible %}
+  <p class="status status-{{ item.build.status }}">
+    {{ item.report.headline }}
+    {% if item.report.flavour %}
+    <span class="muted">({{ item.report.flavour }} · {{ item.report.elapsed }}s in)</span>
+    {% endif %}
+  </p>
+  {% else %}
+  <p class="compare-foot muted">Hidden. Its toggles are above.</p>
+  {% endif %}
+</div>

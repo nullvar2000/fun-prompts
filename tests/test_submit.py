@@ -309,5 +309,6 @@ def test_a_queued_build_still_shows_up_as_a_comparison_column(
     page = bare_client.get(response.headers["location"])
     assert page.status_code == 200
     assert page.text.count('<div class="compare-col') == 3
-    assert "no artifact yet" in page.text
+    assert "waiting for a worker slot" in page.text
+    assert 'hx-get="/compare/column/' in page.text  # and it refreshes without a reload
     assert BuildRepo(db).list(statuses=(BuildStatus.PUBLISHED,)) == []

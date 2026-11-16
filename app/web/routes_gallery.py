@@ -28,6 +28,7 @@ from app.domain.models import Build, BuildVersion, Job, Prompt
 from app.domain.status import BuildStatus, JobKind, JobState
 from app.web.artifact_server import artifact_headers
 from app.web.security import client_key, same_origin_write
+from app.web.status_copy import build_report
 from app.web.templating import templates
 
 router = APIRouter(tags=["gallery"])
@@ -284,6 +285,7 @@ def _build_context(request: Request, build: Build, version: BuildVersion | None)
         "endpoint": endpoint,
         "model": model,
         "artifact_url": None if version is None else _artifact_url(settings, version.id),
+        "report": build_report(build, endpoint.name if endpoint else None),
         "versions": rows,
         "version_row": next(
             (row for row in rows if version and row["id"] == version.id), None
@@ -437,27 +439,29 @@ class CompareSelection:
         query = urlencode(params, doseq=True)
         return f"/compare?{query}" if query else "/gallery"
 
+    def column_url(self, build_id: int) -> str:
+        """The fragment link one column re-fetches while its build is moving.
 
-@router.get("/compare")
-def compare(
-    request: Request,
-    b: list[int] = Query(default_factory=list),
-    hide: list[int] = Query(default_factory=list),
-):
-    """One prompt, up to ``FP_MAX_COMPARISON_TARGETS`` outputs, side by side.
+        The whole selection rides along, so the toggles inside the refreshed
+        column keep pointing at the comparison the visitor is looking at.
+        """
+        query = urlencode(self.params(), doseq=True)
+        return f"/compare/column/{build_id}?{query}"
 
-    Every output is framed from the artifact origin under the same sandbox rules
-    as the build page; the comparison is only a layout.
+
+def _compare_outputs(request: Request, selection: CompareSelection) -> tuple[Prompt, list[dict]]:
+    """Resolve a selection into the columns a comparison shows.
+
+    The page and the per-column fragment ask the same questions, so they answer
+    them here once: same limit, same visibility rules, same copy.
     """
     settings = _settings(request)
     container = _container(request)
-    selection = CompareSelection(b, hide)
     if not selection.builds:
         raise HTTPException(400, "pick at least one build to compare")
 
     limit = settings.max_comparison_targets
-    truncated = len(selection.builds) > limit
-    if truncated:
+    if len(selection.builds) > limit:
         selection.builds = selection.builds[:limit]
         selection.hidden = [i for i in selection.hidden if i in selection.builds]
 
@@ -477,19 +481,42 @@ def compare(
             # Comparing across prompts is a different question, and a different page.
             raise HTTPException(400, "a comparison compares one prompt across endpoints")
         version = container.builds.latest_version(build.id)
+        endpoint = container.endpoints.get(build.endpoint_id)
         outputs.append(
             {
                 "build": build,
                 "version": version,
-                "endpoint": container.endpoints.get(build.endpoint_id),
+                "endpoint": endpoint,
                 "model": container.endpoints.get_model(build.model_row_id),
                 "artifact_url": None if version is None else _artifact_url(settings, version.id),
                 "visible": build.id in selection.visible,
+                "terminal": build.status in _TERMINAL,
+                "report": build_report(build, endpoint.name if endpoint else None),
             }
         )
 
     if prompt is None:  # every selected build 404s before this point
         raise HTTPException(404, "no such build")
+    return prompt, outputs
+
+
+@router.get("/compare")
+def compare(
+    request: Request,
+    b: list[int] = Query(default_factory=list),
+    hide: list[int] = Query(default_factory=list),
+):
+    """One prompt, up to ``FP_MAX_COMPARISON_TARGETS`` outputs, side by side.
+
+    Every output is framed from the artifact origin under the same sandbox rules
+    as the build page; the comparison is only a layout. A column whose build is
+    still moving polls its own fragment, so an artifact appears without a reload.
+    """
+    settings = _settings(request)
+    selection = CompareSelection(b, hide)
+    truncated = len(selection.builds) > settings.max_comparison_targets
+    prompt, outputs = _compare_outputs(request, selection)
+
     visible = [output for output in outputs if output["visible"]]
     return templates.TemplateResponse(
         request=request,
@@ -503,8 +530,38 @@ def compare(
             # artifact gets the page.
             "single": len(visible) == 1,
             "selection": selection,
-            "max_targets": limit,
+            "max_targets": settings.max_comparison_targets,
             "truncated": truncated,
+        },
+    )
+
+
+@router.get("/compare/column/{build_id}")
+def compare_column(
+    request: Request,
+    build_id: int,
+    b: list[int] = Query(default_factory=list),
+    hide: list[int] = Query(default_factory=list),
+):
+    """The one column a comparison re-fetches while its build is still moving.
+
+    Only the column moves, not the page: the selection, the layout and the
+    pinned prompt stay exactly where the visitor left them.
+    """
+    settings = _settings(request)
+    selection = CompareSelection(b, hide)
+    prompt, outputs = _compare_outputs(request, selection)
+    item = next((output for output in outputs if output["build"].id == build_id), None)
+    if item is None:
+        raise HTTPException(404, "that build is not part of the comparison")
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/compare_column.html",
+        context={
+            "artifact_origin": settings.artifact_base_url,
+            "prompt": prompt,
+            "item": item,
+            "selection": selection,
         },
     )
 

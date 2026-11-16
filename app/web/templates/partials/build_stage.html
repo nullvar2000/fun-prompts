@@ -41,16 +41,10 @@ a published page stops asking. #}
   {% endif %}
   {% else %}
   <p class="status status-{{ build.status }}">
-    {% if build.status == 'queued' %}queued — waiting for a worker slot
-    {% elif build.status == 'generating' %}generating — asking
-    {{ endpoint.name if endpoint else 'the endpoint' }}…
-    {% elif build.status == 'validating' %}validating the artifact…
-    {% elif build.status == 'rejected' %}rejected — the model answered, but the
-    artifact did not pass the gate
-    {% elif build.status == 'failed' %}failed — the endpoint or the job did not
-    finish
-    {% elif build.status == 'cancelled' %}cancelled{% else %}{{ build.status }}{%
-    endif %}
+    {{ report.headline }}
+    {% if report.flavour %}
+    <span class="muted">({{ report.flavour }} · {{ report.elapsed }}s in)</span>
+    {% endif %}
     {# The raw responses stay in the database for the admin panel; the public page
        says what happened without repeating model output. #}
     {% if failures %}

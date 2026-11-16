@@ -15,6 +15,7 @@ from app.domain.status import BuildStatus
 from app.storage.db import Database
 from app.storage.repos.builds import BuildRepo
 from app.storage.repos.prompts import PromptRepo
+from app.web.status_copy import FLAVOUR
 from tests.helpers import sibling_builds
 
 
@@ -171,7 +172,7 @@ def test_a_build_that_has_not_published_yet_shows_its_state_not_an_iframe(
     page = bare_client.get(_url([ids[0], pending.id]))
     assert page.status_code == 200
     assert page.text.count("<iframe") == 1
-    assert "generating — no artifact yet" in page.text
+    assert "generating — asking" in page.text
     assert f'href="/build/{pending.id}"' in page.text
 
 
@@ -187,7 +188,7 @@ def test_an_unpublished_build_of_the_same_prompt_has_no_frame(
 
     page = bare_client.get(_url([*ids, extra.id]))
     assert page.text.count("<iframe") == 3
-    assert "generating — no artifact yet" in page.text
+    assert "generating — asking" in page.text
     assert "build page" in page.text
 
 
@@ -200,3 +201,76 @@ def test_hiding_everything_offers_a_way_back(bare_client: TestClient, db: Databa
         assert "show them all" in page.text
     else:
         assert "Every output is hidden" not in page.text
+
+
+# --- polling: an in-flight column refreshes itself -----------------------------
+def _pending_sibling(db: Database, prompt_id: int, like: int) -> int:
+    """A queued build beside ``like`` — same prompt, same pair, no version."""
+    source = BuildRepo(db).get(like)
+    pending = BuildRepo(db).create(
+        prompt_id=prompt_id,
+        endpoint_id=source.endpoint_id,  # type: ignore[union-attr]
+        model_row_id=source.model_row_id,  # type: ignore[union-attr]
+    )
+    return pending.id
+
+
+def test_a_moving_column_polls_and_a_settled_one_does_not(bare_client: TestClient, db: Database) -> None:
+    prompt_id, ids = siblings(db, count=2)
+    pending = _pending_sibling(db, prompt_id, ids[0])
+
+    page = bare_client.get(_url([ids[0], pending]))
+    assert page.status_code == 200
+    assert page.text.count("<iframe") == 1
+    assert f'hx-get="/compare/column/{pending}?' in page.text
+    # The published column is settled and the queued one is the only asker.
+    assert page.text.count("hx-get") == 1
+
+
+def test_a_hidden_column_does_not_poll(bare_client: TestClient, db: Database) -> None:
+    prompt_id, ids = siblings(db, count=1)
+    pending = _pending_sibling(db, prompt_id, ids[0])
+    page = bare_client.get(_url([pending], hidden=[pending]))
+    assert "hx-get" not in page.text
+
+
+def test_the_status_line_offers_rotating_company(bare_client: TestClient, db: Database) -> None:
+    prompt_id, ids = siblings(db, count=1)
+    pending = _pending_sibling(db, prompt_id, ids[0])
+    page = bare_client.get(_url([pending]))
+    assert any(line in page.text for line in FLAVOUR[str(BuildStatus.QUEUED)])
+    assert "s in)" in page.text  # the wait is visible too
+
+
+def test_the_column_fragment_tracks_its_build(bare_client: TestClient, db: Database) -> None:
+    prompt_id, ids = siblings(db, count=1)
+    pending = _pending_sibling(db, prompt_id, ids[0])
+    url = f"/compare/column/{pending}?b={pending}"
+
+    fragment = bare_client.get(url)
+    assert fragment.status_code == 200
+    assert not fragment.text.lstrip().startswith("<!DOCTYPE")  # a fragment, not a page
+    assert fragment.text.count('<div class="compare-col') == 1
+    assert "waiting for a worker slot" in fragment.text
+    assert f'hx-get="/compare/column/{pending}?' in fragment.text  # still moving
+
+    BuildRepo(db).set_status(pending, BuildStatus.GENERATING)
+    assert "generating — asking" in bare_client.get(url).text
+
+    # Published: the fragment becomes the frame and stops asking.
+    builds = BuildRepo(db)
+    builds.add_version(
+        pending,
+        html="<!DOCTYPE html><html><head><title>app</title></head><body><b>MARK</b></body></html>",
+        raw_response="canned",
+    )
+    for step in (BuildStatus.VALIDATING, BuildStatus.PUBLISHED):
+        builds.set_status(pending, step)
+    settled = bare_client.get(url)
+    assert "<iframe" in settled.text and "hx-get" not in settled.text
+
+
+def test_a_column_outside_the_selection_is_not_served(bare_client: TestClient, db: Database) -> None:
+    _, ids = siblings(db, count=2)
+    assert bare_client.get(f"/compare/column/{ids[1]}?b={ids[0]}").status_code == 404
+    assert bare_client.get(f"/compare/column/{ids[0]}").status_code == 400
