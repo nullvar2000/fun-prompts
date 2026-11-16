@@ -274,3 +274,25 @@ def test_a_column_outside_the_selection_is_not_served(bare_client: TestClient, d
     _, ids = siblings(db, count=2)
     assert bare_client.get(f"/compare/column/{ids[1]}?b={ids[0]}").status_code == 404
     assert bare_client.get(f"/compare/column/{ids[0]}").status_code == 400
+
+
+def test_a_truncated_column_blames_the_ceiling_not_the_artifact(
+    bare_client: TestClient, db: Database
+) -> None:
+    prompt_id, ids = siblings(db, count=1)
+    broken = _pending_sibling(db, prompt_id, ids[0])
+    for step in (BuildStatus.GENERATING, BuildStatus.VALIDATING, BuildStatus.REJECTED):
+        BuildRepo(db).set_status(broken, step)
+    for _ in range(2):
+        BuildRepo(db).record_failure(
+            broken,
+            job_id=None,
+            stage="truncated",
+            error_text="answer cut off at the 8000-token ceiling",
+            violations=("missing-or-duplicate-html-close",),
+            raw_response="x",
+        )
+    page = bare_client.get(_url([broken]))
+    assert "ran out of tokens before the document finished" in page.text
+    assert "2 attempts recorded: truncated, truncated" in page.text
+    assert "hx-get" not in page.text  # terminal: nothing more to ask

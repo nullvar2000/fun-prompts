@@ -27,6 +27,7 @@ class FakeProvider:
         fail_with: ProviderError | None = None,
         model_returned: str = "fake-model-1",
         delay_s: float = 0.0,
+        finish_reason: str | Sequence[str] = "stop",
     ) -> None:
         self.responses = list(responses or ['<!DOCTYPE html><html><body>ok</body></html>'])
         self.models = list(
@@ -36,6 +37,10 @@ class FakeProvider:
         self.fail_with = fail_with
         self.model_returned = model_returned
         self.delay_s = delay_s
+        #: Per-call finish reasons: one string for every call, or a sequence
+        #: clamped to its last entry like responses — "length" scripts a
+        #: truncation. Resolved per call, so tests can still assign it.
+        self.finish_reason = finish_reason
         self.calls: list[dict] = []
         #: Concurrency bookkeeping, so the worker's cap can be asserted.
         self.in_flight = 0
@@ -68,10 +73,15 @@ class FakeProvider:
         finally:
             self.in_flight -= 1
         completion_tokens = len(text) // 4
+        if isinstance(self.finish_reason, str):
+            reason = self.finish_reason
+        else:
+            reasons = list(self.finish_reason) or ["stop"]
+            reason = reasons[min(len(self.calls) - 1, len(reasons) - 1)]
         return Completion(
             text=text,
             model_returned=self.model_returned,
-            finish_reason="stop",
+            finish_reason=reason,
             latency_ms=12,
             usage={
                 "prompt_tokens": 10,

@@ -105,6 +105,20 @@ def test_the_repair_instruction_names_the_problems() -> None:
     assert "ONLY the complete" in instruction
 
 
+def test_the_truncated_repair_instruction_asks_for_a_smaller_answer() -> None:
+    report = validate_artifact("<!DOCTYPE html><html><head><style>body{", max_bytes=MAX)
+    instruction = repair_instruction(report, truncated_at=8000)
+    assert "cut off at the 8000-token output ceiling" in instruction
+    assert "stay comfortably under 8000 tokens" in instruction
+    assert "external-url" not in instruction  # the document was not a smuggler, just short
+
+
+def test_the_truncated_instruction_still_names_the_real_problems() -> None:
+    report = validate_artifact("<!DOCTYPE html><html><body>x", max_bytes=MAX)
+    instruction = repair_instruction(report, truncated_at=64)
+    assert "missing-head" in instruction
+
+
 def test_report_serialises_for_storage() -> None:
     report = validate_artifact(doc("<p>ok</p>"), max_bytes=MAX)
     as_dict = report.as_dict()

@@ -199,10 +199,16 @@ caps, publish state) live in the database and are edited in the admin panel.
 Environment values act as deployment wiring **and** as ceilings: a global
 `FP_JOB_TIMEOUT_S` still bounds an endpoint that asks for longer.
 
-Three worth knowing about:
+Four worth knowing about:
 
 - `FP_MAX_COMPARISON_TARGETS` (4) — how many pairs one prompt may fan out to, and
   how many columns `/compare` will show.
+- `FP_MAX_OUTPUT_TOKENS` (8000) — the completion ceiling sent with every
+  generation; a per-endpoint cap in the admin panel is clamped to it, never
+  above it. An answer that hits the ceiling is recorded as a `truncated`
+  failure and its repair retry is told to answer smaller. Elaborate prompts
+  want this raised together with `FP_JOB_TIMEOUT_S`, or the second attempt
+  simply runs out of tokens — or time — again.
 - `FP_REFINE_CONTEXT_CHARS` (24000) — how much of the previous version goes back
   to the model on a revise turn. An artifact may be 200 KB, so the context is
   clipped from the end and the clipping is recorded on the version.
@@ -289,7 +295,9 @@ imports upward, `domain/` performs no I/O, and only `main.py` wires things.
 - **Artifact validation** rejects anything that isn't a single HTML document
   under the size cap with no external URLs, no `<base>` and no meta refresh,
   before it is ever published. Rejected attempts are kept in `build_failures`
-  with the raw response, so a misbehaving endpoint can be read about later.
+  with the raw response, so a misbehaving endpoint can be read about later; an
+  answer cut off at the token ceiling gets its own `truncated` stage, which the
+  public pages name instead of blaming the artifact.
 - **Containment at serve time.** The artifact origin's CSP forbids every fetch
   (`connect-src 'none'`), and the frame is sandboxed without
   `allow-same-origin`. `FP_MAX_ARTIFACT_KB` is re-checked when bytes are served,

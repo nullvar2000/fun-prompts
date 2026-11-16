@@ -25,6 +25,7 @@ BAD = (
     "<script src='https://cdn.example.com/a.js'></script>"
     "</head><body><b>oops</b></body></html>"
 )
+TRUNCATED = "<!DOCTYPE html><html><head><title>8 ball</title><style>body{background"
 
 
 @pytest.fixture
@@ -196,6 +197,62 @@ async def test_persistent_invalid_output_is_rejected_not_published(
     assert "external-url" in failures[0]["violations"]
     assert "cdn.example.com" in failures[0]["raw_response"]
     assert BuildRepo(db).list() == []
+
+
+async def test_a_cut_off_answer_is_recorded_as_truncated_and_repaired_differently(
+    db: Database, settings, targets: list[Target], fake: FakeProvider
+) -> None:
+    """Truncation is its own failure story: same bad document, different cause."""
+    fake.responses = [TRUNCATED]
+    fake.finish_reason = "length"
+    pipe = BuildPipeline(db, settings, provider_for=lambda endpoint: fake)
+    result = pipe.submit(body="a glossy magic 8 ball", targets=targets[:1])
+
+    claimed = pipe.jobs.claim_next()
+    final = await pipe.run_job(claimed)
+    assert final.state is JobState.FAILED
+    assert BuildRepo(db).get(result.builds[0].id).status is BuildStatus.REJECTED
+
+    failures = BuildRepo(db).failures(result.builds[0].id)
+    assert len(failures) == 2
+    assert {f["stage"] for f in failures} == {"truncated"}
+    assert "token ceiling" in failures[0]["error_text"]
+
+    # The repair retry is told to spend fewer tokens, not just to be correct.
+    assert "stay comfortably under" in fake.calls[1]["messages"][-1].content
+
+
+async def test_a_truncated_answer_with_no_document_at_all_is_still_truncated(
+    db: Database, settings, targets: list[Target], fake: FakeProvider
+) -> None:
+    fake.responses = ["Sure! Here is a plan for the a"]
+    fake.finish_reason = "max_tokens"  # gateways disagree on the name
+    pipe = BuildPipeline(db, settings, provider_for=lambda endpoint: fake)
+    result = pipe.submit(body="a glossy magic 8 ball", targets=targets[:1])
+
+    claimed = pipe.jobs.claim_next()
+    await pipe.run_job(claimed)
+
+    failures = BuildRepo(db).failures(result.builds[0].id)
+    assert len(failures) == 1
+    assert failures[0]["stage"] == "truncated"
+    assert "token ceiling" in failures[0]["error_text"]
+
+
+async def test_a_complete_answer_that_stopped_at_the_ceiling_still_publishes(
+    db: Database, settings, targets: list[Target], fake: FakeProvider
+) -> None:
+    """A ceiling stop is only a story when the document is broken as well."""
+    fake.responses = [GOOD]
+    fake.finish_reason = "length"
+    pipe = BuildPipeline(db, settings, provider_for=lambda endpoint: fake)
+    result = pipe.submit(body="a small timer", targets=targets[:1])
+
+    claimed = pipe.jobs.claim_next()
+    final = await pipe.run_job(claimed)
+    assert final.state is JobState.DONE
+    assert BuildRepo(db).get(result.builds[0].id).status is BuildStatus.PUBLISHED
+    assert BuildRepo(db).failures(result.builds[0].id) == []
 
 
 async def test_a_response_with_no_html_in_it_is_an_extract_failure(

@@ -63,6 +63,12 @@ log = logsetup.get("app.build.orchestrator")
 CANCEL_POLL_S = 0.5
 #: How much of a rejected attempt is echoed back for the repair retry.
 ECHO_CLIP_CHARS = 8000
+#: ``finish_reason`` values that mean "the answer was cut off at the output
+#: token ceiling". Servers disagree on the name: OpenAI-compatible ones say
+#: ``length``, Anthropic-flavoured gateways say ``max_tokens``, and some
+#: capitalise both. A cut-off document explains most gate failures on its own,
+#: so it is recorded as its own stage and repaired with different advice.
+TRUNCATED_REASONS = frozenset({"length", "max_tokens", "max_output_tokens", "max_length"})
 
 
 class Cancelled(ValueError):
@@ -427,14 +433,20 @@ class BuildPipeline:
             completion = await self._complete(provider, model_id, messages, limits, job)
 
             extracted = extract_html(completion.text)
+            cut_off = completion.finish_reason.lower() in TRUNCATED_REASONS
             if not keep_published:
                 self.builds.set_status(build.id, BuildStatus.VALIDATING)
             if not extracted.html:
                 self.builds.record_failure(
                     build.id,
                     job_id=job.id,
-                    stage="extract",
-                    error_text=f"no HTML document found in response ({extracted.source})",
+                    stage="truncated" if cut_off else "extract",
+                    error_text=(
+                        f"answer cut off at the {limits.max_output_tokens}-token ceiling "
+                        "before an HTML document appeared"
+                        if cut_off
+                        else f"no HTML document found in response ({extracted.source})"
+                    ),
                     raw_response=completion.text,
                 )
                 return self._publish_failed(job, build, keep_published)
@@ -472,8 +484,13 @@ class BuildPipeline:
             self.builds.record_failure(
                 build.id,
                 job_id=job.id,
-                stage="validate",
-                error_text="artifact rejected: " + ", ".join(report.violations),
+                stage="truncated" if cut_off else "validate",
+                error_text=(
+                    f"answer cut off at the {limits.max_output_tokens}-token ceiling; "
+                    "what arrived was also rejected: " + ", ".join(report.violations)
+                    if cut_off
+                    else "artifact rejected: " + ", ".join(report.violations)
+                ),
                 violations=report.violations,
                 raw_response=completion.text,
             )
@@ -487,7 +504,13 @@ class BuildPipeline:
             messages = [
                 *messages,
                 ChatMessage("assistant", completion.text[:ECHO_CLIP_CHARS]),
-                ChatMessage("user", repair_instruction(report)),
+                ChatMessage(
+                    "user",
+                    repair_instruction(
+                        report,
+                        truncated_at=limits.max_output_tokens if cut_off else None,
+                    ),
+                ),
             ]
 
     async def _complete(

@@ -264,6 +264,23 @@ def test_failure_history_is_summarised_not_dumped(bare_client: TestClient, db: D
     assert "SECRET-MODEL-CHATTER" not in page
 
 
+def test_a_truncated_rejection_says_it_ran_out_of_tokens(bare_client: TestClient, db: Database) -> None:
+    build_id, _, _ = publish(db, title="Cut short", status=BuildStatus.REJECTED)
+    for _ in range(2):
+        BuildRepo(db).record_failure(
+            build_id,
+            job_id=None,
+            stage="truncated",
+            error_text="answer cut off at the 8000-token ceiling",
+            violations=("missing-or-duplicate-html-close",),
+            raw_response="SECRET-CHATTER",
+        )
+    page = bare_client.get(f"/build/{build_id}").text
+    assert "ran out of tokens before the document finished" in page
+    assert "2 attempts recorded: truncated, truncated" in page
+    assert "SECRET-CHATTER" not in page
+
+
 def test_hidden_builds_are_not_reachable(bare_client: TestClient, seeded: dict) -> None:
     build_id = seeded["hidden"][0]
     assert bare_client.get(f"/build/{build_id}").status_code == 404

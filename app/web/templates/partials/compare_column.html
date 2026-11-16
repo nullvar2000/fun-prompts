@@ -44,6 +44,11 @@ the asking stops by itself. #}
     {% if item.report.flavour %}
     <span class="muted">({{ item.report.flavour }} · {{ item.report.elapsed }}s in)</span>
     {% endif %}
+    {# Same attempt summary the build page gives: the public page counts the
+       attempts and names their stages, never the model's own words. #}
+    {% if item.failures %}
+    <span class="muted">({{ item.failures | length }} attempt{{ "" if item.failures | length == 1 else "s" }} recorded: {{ item.failures | map(attribute='stage') | join(', ') }})</span>
+    {% endif %}
   </p>
   {% else %}
   <p class="compare-foot muted">Hidden. Its toggles are above.</p>

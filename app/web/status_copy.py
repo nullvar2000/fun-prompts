@@ -14,6 +14,7 @@ in the browser, which keeps both pages inside their CSP.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Sequence
 
 from app.domain.models import Build
 
@@ -28,6 +29,10 @@ HEADLINES = {
     "validating": "validating the artifact…",
     "published": "published — nothing published to show",
     "rejected": "rejected — the model answered, but the artifact did not pass the gate",
+    #: Used instead of the plain rejection headline when the failure history
+    #: says the answer was cut off at the token ceiling — a different problem,
+    #: and one the visitor can fix by asking for something smaller.
+    "rejected-truncated": "rejected — the answer ran out of tokens before the document finished",
     "failed": "failed — the endpoint or the job did not finish",
     "cancelled": "cancelled",
 }
@@ -56,14 +61,26 @@ FLAVOUR = {
 }
 
 
-def build_report(build: Build, endpoint_name: str | None = None, *, now: dt.datetime | None = None) -> dict:
+def build_report(
+    build: Build,
+    endpoint_name: str | None = None,
+    *,
+    failures: Sequence[dict] | None = None,
+    now: dt.datetime | None = None,
+) -> dict:
     """The copy for one build's standing-in: headline, rotating flavour, elapsed.
+
+    ``failures`` is the build's recorded failure history (the same rows the
+    admin panel reads): if a rejection was caused by an answer hitting the
+    token ceiling, the headline says so instead of blaming the artifact alone.
 
     ``now`` is a parameter only so a test can spin the clock; callers leave it
     out and get the wall clock. An unparseable timestamp degrades to "just
     started" rather than to no message at all.
     """
     status = str(build.status)
+    if status == "rejected" and failures and any(str(f.get("stage")) == "truncated" for f in failures):
+        status = "rejected-truncated"
     headline = HEADLINES.get(status, status).format(endpoint=endpoint_name or "the endpoint")
     lines = FLAVOUR.get(status)
     if lines is None:

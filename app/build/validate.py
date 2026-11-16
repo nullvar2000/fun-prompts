@@ -112,9 +112,24 @@ def validate_artifact(html: str, *, max_bytes: int) -> ValidationReport:
     )
 
 
-def repair_instruction(report: ValidationReport) -> str:
-    """The follow-up used for the single automatic repair retry."""
+def repair_instruction(report: ValidationReport, *, truncated_at: int | None = None) -> str:
+    """The follow-up used for the single automatic repair retry.
+
+    A truncated answer gets different advice: asking for the same complete
+    document again, at the same ceiling, just reproduces the same cut-off. The
+    retry has to be told to spend fewer tokens than the last answer did.
+    """
     problems = ", ".join(report.violations) or "unknown problem"
+    if truncated_at:
+        return (
+            "Your previous answer was cut off at the "
+            f"{truncated_at}-token output ceiling, so the document stopped mid-build "
+            f"(and what had arrived was wrong as well: {problems}). Reply again with "
+            "ONLY the complete, self-contained HTML document: start at <!DOCTYPE html>, "
+            f"end at </html>, and stay comfortably under {truncated_at} tokens — "
+            "leaner CSS, shorter names, and none of the decoration you cannot afford. "
+            "No markdown fences, no commentary, no external URLs."
+        )
     return (
         "Your previous answer could not be published "
         f"(reasons: {problems}). Reply again with ONLY the complete, "

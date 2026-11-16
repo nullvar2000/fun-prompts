@@ -60,6 +60,19 @@ def test_terminal_statuses_report_the_fact_without_company() -> None:
         assert report["headline"]  # every status still has its sentence
 
 
+def test_a_truncated_rejection_blames_the_ceiling_not_the_artifact() -> None:
+    failures = [{"stage": "truncated"}, {"stage": "truncated"}]
+    report = build_report(_build(BuildStatus.REJECTED), "litellm", failures=failures, now=_START)
+    assert "ran out of tokens before the document finished" in report["headline"]
+    assert report["flavour"] is None
+
+
+def test_a_rejection_for_other_reasons_keeps_the_plain_headline() -> None:
+    for failures in ([{"stage": "validate"}], [], None):
+        report = build_report(_build(BuildStatus.REJECTED), "litellm", failures=failures, now=_START)
+        assert "did not pass the gate" in report["headline"]
+
+
 def test_the_three_working_statuses_all_have_lines() -> None:
     for status in (BuildStatus.QUEUED, BuildStatus.GENERATING, BuildStatus.VALIDATING):
         assert len(FLAVOUR[str(status)]) >= 2  # rotation needs more than one line

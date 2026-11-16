@@ -277,6 +277,7 @@ def _build_context(request: Request, build: Build, version: BuildVersion | None)
     model = container.endpoints.get_model(build.model_row_id)
     refine_job, last_refine = _refine_state(container, build.id)
     rows = _version_rows(container, build.id)
+    failures = container.builds.failures(build.id)
     return {
         "artifact_origin": settings.artifact_base_url,
         "build": build,
@@ -285,12 +286,12 @@ def _build_context(request: Request, build: Build, version: BuildVersion | None)
         "endpoint": endpoint,
         "model": model,
         "artifact_url": None if version is None else _artifact_url(settings, version.id),
-        "report": build_report(build, endpoint.name if endpoint else None),
+        "report": build_report(build, endpoint.name if endpoint else None, failures=failures),
         "versions": rows,
         "version_row": next(
             (row for row in rows if version and row["id"] == version.id), None
         ),
-        "failures": container.builds.failures(build.id),
+        "failures": failures,
         # A published build with a revise job running is not settled: polling has
         # to keep going or the page shows a version that is no longer the latest.
         "terminal": build.status in _TERMINAL and refine_job is None,
@@ -482,6 +483,7 @@ def _compare_outputs(request: Request, selection: CompareSelection) -> tuple[Pro
             raise HTTPException(400, "a comparison compares one prompt across endpoints")
         version = container.builds.latest_version(build.id)
         endpoint = container.endpoints.get(build.endpoint_id)
+        failures = container.builds.failures(build.id)
         outputs.append(
             {
                 "build": build,
@@ -491,7 +493,8 @@ def _compare_outputs(request: Request, selection: CompareSelection) -> tuple[Pro
                 "artifact_url": None if version is None else _artifact_url(settings, version.id),
                 "visible": build.id in selection.visible,
                 "terminal": build.status in _TERMINAL,
-                "report": build_report(build, endpoint.name if endpoint else None),
+                "failures": failures,
+                "report": build_report(build, endpoint.name if endpoint else None, failures=failures),
             }
         )
 
